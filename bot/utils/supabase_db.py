@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+import urllib.request
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -28,7 +29,50 @@ class SupabaseDatabase:
         self.key = key
         self.client: Client = create_client(url, key)
         self._init_tables()
+        self._init_storage()
     
+    def _init_storage(self):
+        """Initialize bot-assets bucket and ensure startup assets exist."""
+        try:
+            # Check if bucket exists
+            buckets = self.client.storage.list_buckets()
+            bucket_exists = any(b.name == "bot-assets" for b in buckets)
+            
+            if not bucket_exists:
+                # Create a public bucket using the service role key
+                self.client.storage.create_bucket("bot-assets", {"public": True})
+                logger.info("Created Supabase storage bucket 'bot-assets'")
+                
+            # Pre-upload Brook welcome image if missing
+            files = self.client.storage.from_("bot-assets").list()
+            brook_exists = any(f.get("name") == "brook_start.png" for f in files)
+            
+            if not brook_exists:
+                local_path = "assets/brook_start.png"
+                if os.path.exists(local_path):
+                    try:
+                        with open(local_path, "rb") as f:
+                            img_data = f.read()
+                            
+                        self.client.storage.from_("bot-assets").upload("brook_start.png", img_data, {"content-type": "image/png"})
+                        logger.info("Successfully uploaded Brook start image to Supabase storage")
+                    except Exception as e:
+                        logger.warning(f"Failed to upload local Brook image to Supabase: {e}")
+                else:
+                    logger.warning(f"Local asset {local_path} not found to upload.")
+                    
+        except Exception as e:
+            logger.error(f"Error initializing Supabase storage: {e}")
+
+    def get_start_image(self) -> str:
+        """Get the public URL for the Brook start image from Supabase."""
+        try:
+            url = self.client.storage.from_("bot-assets").get_public_url("brook_start.png")
+            return url
+        except Exception:
+            return "https://github.com/edent/SuperTinyIcons/raw/master/images/svg/telegram.svg" # A tiny fallback
+
+            
     def _init_tables(self):
         """Initialize database tables if they don't exist."""
         # Note: Tables should be created via Supabase dashboard or migrations
@@ -238,7 +282,12 @@ class SupabaseDatabase:
             result = self.client.table("sudo_users").select("*").eq("id", user_id).execute()
             return len(result.data) > 0
         except Exception as e:
-            logger.error(f"Error checking sudo: {e}")
+            error_msg = str(e)
+            if "Could not find the table" in error_msg or "PGRST205" in error_msg:
+                logger.warning("Supabase table 'sudo_users' not found. Create it via SQL Editor:")
+                logger.warning("CREATE TABLE sudo_users (id BIGINT PRIMARY KEY, name TEXT, added_by BIGINT, added_at TIMESTAMP DEFAULT NOW());")
+            else:
+                logger.error(f"Error checking sudo: {e}")
             return False
     
     # Global bans
@@ -268,7 +317,12 @@ class SupabaseDatabase:
             result = self.client.table("gbanned").select("*").eq("id", user_id).execute()
             return len(result.data) > 0
         except Exception as e:
-            logger.error(f"Error checking gban: {e}")
+            error_msg = str(e)
+            if "Could not find the table" in error_msg or "PGRST205" in error_msg:
+                logger.warning("Supabase table 'gbanned' not found. Create it via SQL Editor:")
+                logger.warning("CREATE TABLE gbanned (id BIGINT PRIMARY KEY, reason TEXT, banned_by BIGINT, banned_at TIMESTAMP DEFAULT NOW());")
+            else:
+                logger.error(f"Error checking gban: {e}")
             return False
     
     # Group bans
@@ -323,7 +377,16 @@ class SupabaseDatabase:
                 "sudo_users": 0,
                 "gbanned_users": 0,
             }
-    
+
+    async def get_all_groups(self) -> list:
+        """Return all active groups as list of dicts with '_id' key."""
+        try:
+            result = self.client.table("groups").select("id").eq("is_active", True).execute()
+            return [{"_id": row["id"]} for row in (result.data or [])]
+        except Exception as e:
+            logger.error(f"Error getting all groups: {e}")
+            return []
+
     # Migration helper
     async def migrate_from_mongodb(self, mongo_db):
         """Migrate data from MongoDB to Supabase."""

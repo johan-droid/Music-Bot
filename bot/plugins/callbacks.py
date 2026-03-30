@@ -6,7 +6,11 @@ from pyrogram.types import CallbackQuery
 from bot.utils.permissions import get_permission_level
 from bot.core.queue import queue_manager
 from bot.core.call import call_manager
-from bot.utils.ffmpeg import ffmpeg_manager
+from bot.utils.progress_tracker import progress_tracker
+from bot.utils.cache import cache
+from bot.core.bot import bot_client
+from config import config
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +46,18 @@ async def callback_handler(client: Client, callback: CallbackQuery):
         "loop": handle_loop,
         "brok_info": handle_brok_info,
         "help": handle_help_info,
+        "help_menu": handle_help_info,
+        "status_check": handle_status_check,
     }
     
     handler = handlers.get(data)
     if handler:
-        # Admin-only callbacks
+        # Playback callbacks — open to all non-banned members (level >= 1)
         if data in ["pause", "resume", "skip", "stop", "shuffle", "clearqueue", "loop"]:
-            if level < 3:
-                await callback.answer("⛔ Admins only!", show_alert=True)
+            if level < 1:
+                await callback.answer("⛔ You are banned from using this bot!", show_alert=True)
                 return
-        
+
         await handler(client, callback, chat_id)
     else:
         await callback.answer("Unknown action", show_alert=True)
@@ -66,9 +72,9 @@ async def handle_pause(client: Client, callback: CallbackQuery, chat_id: int):
     
     await queue_manager.set_status(chat_id, "paused")
     await call_manager.pause(chat_id)
-    
-    await callback.answer("⏸ Paused")
-    await callback.message.edit_reply_markup(None)  # Remove buttons or update
+    progress_tracker.pause(chat_id)
+
+    await callback.answer("⏸ Paused! The Soul King takes a breath... Yohoho!", show_alert=False)
 
 
 async def handle_resume(client: Client, callback: CallbackQuery, chat_id: int):
@@ -80,8 +86,9 @@ async def handle_resume(client: Client, callback: CallbackQuery, chat_id: int):
     
     await queue_manager.set_status(chat_id, "playing")
     await call_manager.resume(chat_id)
-    
-    await callback.answer("▶ Resumed")
+    progress_tracker.resume(chat_id)
+
+    await callback.answer("▶️ Resumed! YOHOHOHO! 🎸", show_alert=False)
 
 
 async def handle_skip(client: Client, callback: CallbackQuery, chat_id: int):
@@ -91,11 +98,11 @@ async def handle_skip(client: Client, callback: CallbackQuery, chat_id: int):
         await callback.answer("Nothing playing!", show_alert=True)
         return
     
-    await callback.answer("⏭ Skipping...")
+    await callback.answer("⏭ Skipping to the next track! Yohohoho!", show_alert=False)
     
     # Trigger skip
     await call_manager.leave_call(chat_id)
-    await ffmpeg_manager.stop_stream(chat_id)
+    progress_tracker.stop(chat_id)
     
     from bot.plugins.play import start_playback
     await start_playback(chat_id)
@@ -109,10 +116,23 @@ async def handle_stop(client: Client, callback: CallbackQuery, chat_id: int):
         return
     
     await call_manager.leave_call(chat_id)
-    await ffmpeg_manager.stop_stream(chat_id)
     await queue_manager.clear_queue(chat_id)
+    progress_tracker.stop(chat_id)
+
+    # Trigger NP card auto-clean
+    np_msg_id = await cache.get_np_message(chat_id)
+    if np_msg_id:
+        async def _nuke_np():
+            await asyncio.sleep(config.NP_AUTOCLEAN_DELAY)
+            try:
+                await bot_client.delete_messages(chat_id, np_msg_id)
+            except Exception:
+                pass
+            await cache.clear_np_message(chat_id)
+        asyncio.create_task(_nuke_np())
     
-    await callback.answer("⏹ Stopped")
+    await callback.answer("⏹ Stopped! The Soul King bows down! Yohoho!", show_alert=False)
+    await callback.message.edit("⏹ **Playback stopped & queue cleared.**\n<i>The concert has ended, Yohoho!</i>", parse_mode="html")
 
 
 async def handle_queue(client: Client, callback: CallbackQuery, chat_id: int):
@@ -137,7 +157,7 @@ async def handle_shuffle(client: Client, callback: CallbackQuery, chat_id: int):
         return
     
     await queue_manager.shuffle(chat_id)
-    await callback.answer("🔀 Shuffled!")
+    await callback.answer("🔀 Shuffled the Soul King's setlist! Yohoho!")
 
 
 async def handle_clearqueue(client: Client, callback: CallbackQuery, chat_id: int):
@@ -152,22 +172,22 @@ async def handle_clearqueue(client: Client, callback: CallbackQuery, chat_id: in
     from bot.utils.cache import redis_client
     await redis_client.delete(key)
     
-    await callback.answer(f"🗑 Cleared {queue_len} songs")
+    await callback.answer(f"🗑️ Cleared {queue_len} songs from the setlist! Yohoho!")
 
 
 async def handle_loop(client: Client, callback: CallbackQuery, chat_id: int):
     """Handle loop toggle callback."""
-    from bot.utils.database import db
+    import bot.utils.database as app_db
     
-    group = await db.get_group(chat_id)
+    group = await app_db.db.get_group(chat_id)
     current_mode = group.get("settings", {}).get("loop_mode", "none")
     
     modes = {"none": "track", "track": "queue", "queue": "none"}
     new_mode = modes.get(current_mode, "none")
     
-    await db.update_group(chat_id, {"settings.loop_mode": new_mode})
+    await app_db.db.update_group(chat_id, {"settings.loop_mode": new_mode})
     
-    mode_text = {"none": "Loop off", "track": "Loop track", "queue": "Loop queue"}
+    mode_text = {"none": "🔄 Loop OFF", "track": "🔂 Looping Track! Yohoho!", "queue": "🔁 Looping Queue! Yohohoho!"}
     await callback.answer(mode_text[new_mode])
 
 
@@ -191,14 +211,27 @@ This bot is powered by a One Piece spirit:
 
 async def handle_help_info(client: Client, callback: CallbackQuery, chat_id: int):
     """Handle help callback prompt."""
-    text = """
-📚 Use /help in chat for full commands list.
+    text = (
+        "💀 Use /help for full commands!\n\n"
+        "🎸 Playback: /play, /pause, /skip, /stop\n"
+        "📋 Queue: /queue, /now, /shuffle\n\n"
+        "👤 VC participants can use /play!"
+    )
+    await callback.answer(text, show_alert=True)
 
-If you're in a group, use the following commands for playback:
-/play, /vplay, /pause, /resume, /skip, /stop, /queue
 
-🔧 Admin controls are required to manage voice chat.
-    """
+async def handle_status_check(client: Client, callback: CallbackQuery, chat_id: int):
+    """Handle status check inline button."""
+    status = await queue_manager.get_status(chat_id)
+    current = await queue_manager.get_current(chat_id)
+    
+    if status == "idle" or not current:
+        text = "💀 The stage is empty! Use /play to start the music, Yohoho!"
+    elif status == "paused":
+        text = f"⏸ Paused: **{current.get('title', 'Unknown')[:40]}**"
+    else:
+        text = f"▶️ Now Playing: **{current.get('title', 'Unknown')[:40]}** 🎸"
+    
     await callback.answer(text, show_alert=True)
 
 

@@ -5,13 +5,39 @@ import re
 from functools import wraps
 from pyrogram import filters
 from pyrogram.types import Message, CallbackQuery
+from pyrogram.errors import FloodWait
 from config import config
 from bot.utils.cache import cache
-from bot.utils.database import db
+import bot.utils.database as app_db
 from bot.core.bot import bot_client
 from bot.core.userbot import userbot_clients
 
 logger = logging.getLogger(__name__)
+
+# Brook-themed Access Warnings
+_OWNER_WARN = (
+    "⛔ **Access Denied!**\n\n"
+    "💀 *\"Yohohoho! Only the Captain can use this command!\"*\n"
+    "This command is reserved for the **bot owner** only."
+)
+
+_SUDO_WARN = (
+    "⛔ **Access Denied!**\n\n"
+    "💀 *\"Yohohoho! You\'re not part of the Soul King\'s trusted crew!\"*\n"
+    "This command requires **sudo/owner** privileges."
+)
+
+_ADMIN_WARN = (
+    "⛔ **Access Denied!**\n\n"
+    "💀 *\"Yohohoho! Only group admins may wield this power!\"*\n"
+    "This command is for **group admins** only."
+)
+
+_MAINTENANCE_WARN = (
+    "🔧 **Maintenance in Progress!**\n\n"
+    "💀 *\"Checking my bones... the Soul King is currently polishing his violin!\"*\n"
+    "The bot is under maintenance. Please try again later, Yohoho!"
+)
 
 # Active voice chat participants cache
 _vc_participants: dict = {}  # {chat_id: {user_id: timestamp}}
@@ -78,28 +104,43 @@ async def is_sudo(user_id: int) -> bool:
     """Check if user is sudo (or owner)."""
     if await is_owner(user_id):
         return True
-    return await db.is_sudo(user_id)
+    if app_db.db is None:
+        return False
+    return await app_db.db.is_sudo(user_id)
 
 
 async def is_gbanned(user_id: int) -> bool:
     """Check if user is globally banned."""
+    # Guard: if DB isn't ready yet, assume not banned (fail-open)
+    if app_db.db is None:
+        return False
+
     # Check cache first
     cached = await cache.is_gbanned_cached(user_id)
     if cached:
         return True
-    
+
     # Check database
-    banned = await db.is_gbanned(user_id)
-    await cache.cache_gban(user_id, banned)
-    return banned
+    try:
+        banned = await app_db.db.is_gbanned(user_id)
+        await cache.cache_gban(user_id, banned)
+        return banned
+    except Exception as e:
+        logger.warning(f"is_gbanned check failed: {e}")
+        return False
 
 
 async def is_group_admin(chat_id: int, user_id: int) -> bool:
-    """Check if user is admin in a group."""
+    """Check if user is admin in the group with caching."""
     # Check cache first
     cached = await cache.is_admin(chat_id, user_id)
     if cached:
         return True
+    
+    # Check if bot_client is initialized
+    if bot_client is None:
+        logger.warning("bot_client not initialized, skipping admin check")
+        return False
     
     try:
         # Fetch from Telegram
@@ -126,6 +167,9 @@ async def is_admin_cached(chat_id: int, user_id: int) -> bool:
 
 async def check_bot_admin(chat_id: int) -> bool:
     """Check if bot is admin in a group."""
+    if bot_client is None:
+        logger.warning("bot_client not initialized, skipping bot admin check")
+        return False
     try:
         member = await bot_client.get_chat_member(chat_id, bot_client.me.id)
         return member.status == "administrator" or member.status == "creator"
@@ -189,6 +233,39 @@ async def get_permission_level(user_id: int, chat_id: int = None, check_vc: bool
 
 
 # Decorators
+def require_member(func):
+    """Decorator to allow any group member (non-banned) to use the command."""
+    @wraps(func)
+    async def wrapper(client, message: Message):
+        user_id = message.from_user.id if message.from_user else None
+        chat_id = message.chat.id if message.chat else None
+
+        if not user_id or not chat_id:
+            return
+
+        # Check maintenance mode
+        if await cache.is_maintenance():
+            if not await is_sudo(user_id):
+                await message.reply(_MAINTENANCE_WARN)
+                return
+
+        # Check global ban
+        if await is_gbanned(user_id):
+            return  # Silent reject
+
+        # Check group-level ban
+        if app_db.db is not None:
+            try:
+                if await app_db.db.is_banned(chat_id, user_id):
+                    return  # Silent reject
+            except Exception:
+                pass
+
+        return await func(client, message)
+
+    return wrapper
+
+
 def require_admin(func):
     """Decorator to require group admin or higher."""
     @wraps(func)
@@ -203,7 +280,7 @@ def require_admin(func):
         # Check maintenance mode
         if await cache.is_maintenance():
             if not await is_sudo(user_id):
-                await message.reply("🔧 Bot is under maintenance. Please try again later.")
+                await message.reply(_MAINTENANCE_WARN)
                 return
         
         # Check gban
@@ -213,7 +290,7 @@ def require_admin(func):
         # Check permissions
         level = await get_permission_level(user_id, chat_id)
         if level < 3:  # Not admin or higher
-            await message.reply("⛔ This command is for admins only.")
+            await message.reply(_ADMIN_WARN)
             return
         
         # Check bot admin status
@@ -234,20 +311,20 @@ def require_sudo(func):
     @wraps(func)
     async def wrapper(client, message: Message):
         user_id = message.from_user.id if message.from_user else None
-        
+
         if not user_id:
             return
-        
+
         # Check gban
         if await is_gbanned(user_id):
             return
-        
+
         if not await is_sudo(user_id):
-            await message.reply("⛔ This command is for sudo users only.")
+            await message.reply(_SUDO_WARN)
             return
-        
+
         return await func(client, message)
-    
+
     return wrapper
 
 
@@ -256,16 +333,16 @@ def require_owner(func):
     @wraps(func)
     async def wrapper(client, message: Message):
         user_id = message.from_user.id if message.from_user else None
-        
+
         if not user_id:
             return
-        
+
         if not await is_owner(user_id):
-            await message.reply("⛔ This command is for the bot owner only.")
+            await message.reply(_OWNER_WARN)
             return
-        
+
         return await func(client, message)
-    
+
     return wrapper
 
 
@@ -284,6 +361,13 @@ def rate_limit(func):
         if not await cache.check_cooldown(user_id, cmd, config.COMMAND_COOLDOWN):
             return  # Silent reject on cooldown
         
-        return await func(client, message)
+        try:
+            return await func(client, message)
+        except FloodWait as e:
+            logger.warning(f"FloodWait of {e.value}s on {cmd}. Dropping request to protect token limitation.")
+            return
+        except Exception as e:
+            logger.error(f"Error executing command {cmd}: {e}")
+            return
     
     return wrapper
