@@ -1,6 +1,5 @@
 pyrogram==2.0.106
-py-tgcalls==2.0.9
-ntgcalls==1.2.7
+py-tgcalls==2.2.11
 yt-dlp==2024.12.6
 pydantic==2.10.4
 pydantic-settings==2.7.1
