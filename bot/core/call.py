@@ -5,7 +5,7 @@ import asyncio
 from typing import Dict, Optional, Callable, List, Any
 from pyrogram import Client
 from pytgcalls import PyTgCalls
-from pytgcalls.types import AudioPiped, AudioVideoPiped
+from pytgcalls.types import MediaStream
 from pytgcalls.types.stream import StreamAudioEnded
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall
 
@@ -68,19 +68,17 @@ class CallManager:
         
         try:
             if video:
-                # Video mode - AudioVideoPiped with high-quality audio
-                stream = AudioVideoPiped(
+                # Video mode - MediaStream with high-quality audio
+                stream = MediaStream(
                     audio_path,
                     audio_parameters=ffmpeg_params["audio_parameters"],
-                    ffmpeg_parameters=ffmpeg_params["ffmpeg_parameters"]
                 )
                 await call.join_group_call(chat_id, stream)
             else:
                 # Audio only mode with high-quality parameters
-                stream = AudioPiped(
+                stream = MediaStream(
                     audio_path,
                     audio_parameters=ffmpeg_params["audio_parameters"],
-                    ffmpeg_parameters=ffmpeg_params["ffmpeg_parameters"]
                 )
                 await call.join_group_call(chat_id, stream)
             
@@ -127,17 +125,15 @@ class CallManager:
         
         try:
             if video:
-                stream = AudioVideoPiped(
+                stream = MediaStream(
                     audio_path,
                     audio_parameters=ffmpeg_params["audio_parameters"],
-                    ffmpeg_parameters=ffmpeg_params["ffmpeg_parameters"]
                 )
                 await call.change_stream(chat_id, stream)
             else:
-                stream = AudioPiped(
+                stream = MediaStream(
                     audio_path,
                     audio_parameters=ffmpeg_params["audio_parameters"],
-                    ffmpeg_parameters=ffmpeg_params["ffmpeg_parameters"]
                 )
                 await call.change_stream(chat_id, stream)
             
