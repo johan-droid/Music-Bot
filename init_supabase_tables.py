@@ -1,108 +1,90 @@
 """Supabase table auto-initializer - Run this once to create tables."""
 
+import os
+import sys
 import asyncio
 import logging
-from bot.utils.database import db
-from bot.utils.supabase_db import supabase_db
+from pathlib import Path
+
+# Load .env file first
+env_path = Path(__file__).parent / ".env"
+if env_path.exists():
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
 logger = logging.getLogger(__name__)
 
 
 async def init_supabase_tables():
     """Create Supabase tables if they don't exist."""
-    if supabase_db is None or not supabase_db.client:
-        logger.error("Supabase not connected. Check your SUPABASE_URL and SUPABASE_KEY.")
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    
+    if not url or not key:
+        print("❌ Error: SUPABASE_URL and SUPABASE_KEY not found in .env file")
+        print("\nAdd these to your .env file:")
+        print("SUPABASE_URL=https://your-project.supabase.co")
+        print("SUPABASE_KEY=your-service-role-key")
         return False
-    
-    client = supabase_db.client
-    
-    # SQL to create tables
-    sql_commands = [
-        """
-        CREATE TABLE IF NOT EXISTS groups (
-            id BIGINT PRIMARY KEY,
-            title TEXT,
-            lang TEXT DEFAULT 'en',
-            is_active BOOLEAN DEFAULT TRUE,
-            joined_at TIMESTAMP DEFAULT NOW(),
-            settings JSONB DEFAULT '{
-                "play_on_join": true,
-                "max_queue": 100,
-                "vol_default": 100,
-                "loop_mode": "none",
-                "quality": "high",
-                "thumb_mode": true
-            }'
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS sudo_users (
-            id BIGINT PRIMARY KEY,
-            name TEXT,
-            added_by BIGINT,
-            added_at TIMESTAMP DEFAULT NOW()
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS gbanned (
-            id BIGINT PRIMARY KEY,
-            reason TEXT,
-            banned_by BIGINT,
-            banned_at TIMESTAMP DEFAULT NOW()
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS group_bans (
-            chat_id BIGINT,
-            user_id BIGINT,
-            banned_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (chat_id, user_id)
-        );
-        """,
-        "CREATE INDEX IF NOT EXISTS idx_groups_active ON groups(is_active);",
-        "CREATE INDEX IF NOT EXISTS idx_gbanned_id ON gbanned(id);",
-        "CREATE INDEX IF NOT EXISTS idx_group_bans_chat ON group_bans(chat_id);",
-        "CREATE INDEX IF NOT EXISTS idx_group_bans_user ON group_bans(user_id);",
-    ]
     
     try:
-        # Execute each SQL command
-        for sql in sql_commands:
-            try:
-                # Supabase supports raw SQL via rpc or postgrest
-                # Using the sql() method if available
-                result = client.rpc('exec_sql', {'sql': sql}).execute()
-                logger.info(f"Executed: {sql[:50]}...")
-            except Exception as e:
-                logger.warning(f"Table may already exist or SQL failed: {e}")
-        
-        logger.info("Supabase tables initialized successfully!")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase tables: {e}")
+        from supabase import create_client
+        client = create_client(url, key)
+        print(f"✅ Connected to Supabase: {url[:30]}...")
+    except ImportError:
+        print("❌ Error: supabase package not installed")
+        print("Run: pip install supabase")
         return False
+    except Exception as e:
+        print(f"❌ Error connecting to Supabase: {e}")
+        return False
+    
+    # Read SQL from file
+    sql_path = Path(__file__).parent / "supabase_setup.sql"
+    if not sql_path.exists():
+        print("❌ Error: supabase_setup.sql not found")
+        return False
+    
+    with open(sql_path, 'r', encoding='utf-8') as f:
+        sql_content = f.read()
+    
+    print("\n⚠️  Supabase REST API cannot execute DDL (CREATE TABLE) statements.")
+    print("You must create tables manually via the SQL Editor.")
+    print("\n" + "="*60)
+    print("📋 MANUAL SETUP INSTRUCTIONS:")
+    print("="*60)
+    print("1. Go to: https://app.supabase.io")
+    print("2. Select your project")
+    print("3. Click 'SQL Editor' in the left sidebar")
+    print("4. Click 'New Query'")
+    print("5. Copy ALL contents from supabase_setup.sql")
+    print("6. Paste into the SQL Editor")
+    print("7. Click 'Run'")
+    print("="*60)
+    print("\n✅ After running the SQL, your tables will be ready!")
+    
+    # Try to verify connection by querying
+    try:
+        result = client.table('groups').select('*').limit(1).execute()
+        print("\n✅ Connection test passed - groups table exists!")
+    except Exception as e:
+        if "PGRST205" in str(e) or "not found" in str(e).lower():
+            print("\n⚠️  Tables not yet created - follow instructions above")
+        else:
+            print(f"\n⚠️  Connection test: {e}")
+    
+    return True
 
 
 if __name__ == "__main__":
-    # Setup basic logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Run the initializer
-    print("Initializing Supabase tables...")
-    print("Make sure SUPABASE_URL and SUPABASE_KEY are set in your .env file")
+    print("🔧 Supabase Table Initializer")
+    print("="*60)
     
     result = asyncio.run(init_supabase_tables())
     
-    if result:
-        print("\n✅ Tables created successfully!")
-    else:
-        print("\n❌ Failed to create tables. Check errors above.")
-        print("\nManual setup instructions:")
-        print("1. Go to https://app.supabase.io")
-        print("2. Open your project → SQL Editor")
-        print("3. Copy and paste contents of supabase_setup.sql")
-        print("4. Click 'Run'")
+    if not result:
+        sys.exit(1)
