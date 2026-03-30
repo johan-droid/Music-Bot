@@ -3,20 +3,54 @@
 import os
 import sys
 import asyncio
-import logging
 from pathlib import Path
 
-# Load .env file first
-env_path = Path(__file__).parent / ".env"
-if env_path.exists():
-    with open(env_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ[key.strip()] = value.strip().strip('"').strip("'")
-
-logger = logging.getLogger(__name__)
+# Load .env using python-dotenv (installed in requirements)
+try:
+    from dotenv import load_dotenv
+    
+    # Check for .env files - prioritize bot/ subdirectory first
+    env_paths = [
+        Path(__file__).parent / "bot" / ".env.local",
+        Path(__file__).parent / "bot" / ".env",
+        Path(__file__).parent / ".env.local",
+        Path(__file__).parent / ".env",
+    ]
+    loaded = False
+    
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(env_path)
+            print(f"✅ Loaded env from: {env_path}")
+            loaded = True
+            break
+    
+    if not loaded:
+        print(f"⚠️  No .env or .env.local file found")
+        print("   Looking for environment variables...")
+        
+except ImportError:
+    print("⚠️  python-dotenv not installed, using manual parsing")
+    # Fallback manual parsing
+    env_paths = [
+        Path(__file__).parent / "bot" / ".env.local",
+        Path(__file__).parent / "bot" / ".env",
+        Path(__file__).parent / ".env.local",
+        Path(__file__).parent / ".env",
+    ]
+    for env_path in env_paths:
+        if env_path.exists():
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if value:
+                            os.environ[key] = value
+            print(f"✅ Loaded env from: {env_path}")
+            break
 
 
 async def init_supabase_tables():
@@ -24,8 +58,19 @@ async def init_supabase_tables():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     
+    # Debug: Show what we found (masked)
+    if url:
+        print(f"   Found SUPABASE_URL: {url[:20]}...")
+    else:
+        print("   SUPABASE_URL: NOT FOUND")
+    
+    if key:
+        print(f"   Found SUPABASE_KEY: {key[:10]}...{key[-5:]}")
+    else:
+        print("   SUPABASE_KEY: NOT FOUND")
+    
     if not url or not key:
-        print("❌ Error: SUPABASE_URL and SUPABASE_KEY not found in .env file")
+        print("\n❌ Error: SUPABASE_URL and SUPABASE_KEY not found")
         print("\nAdd these to your .env file:")
         print("SUPABASE_URL=https://your-project.supabase.co")
         print("SUPABASE_KEY=your-service-role-key")
