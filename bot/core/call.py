@@ -6,7 +6,6 @@ from typing import Dict, Optional, Callable, List, Any
 from pyrogram import Client
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream, StreamEnded
-from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall
 
 from bot.utils.audio_config import get_audio_optimizer, AudioConfig, AudioQuality
 
@@ -84,11 +83,11 @@ class CallManager:
             self.active_chats[chat_id] = userbot_idx
             logger.info(f"Joined Video Chat in chat {chat_id} with userbot {userbot_idx} (Quality: {optimizer.config.quality.value})")
             
-        except NoActiveGroupCall:
-            raise RuntimeError("No active video chat in this group. Please start a video chat first.")
-        except GroupCallNotFound:
-            raise RuntimeError("Video chat not found")
         except Exception as e:
+            if "No active" in str(e) or "group call" in str(e).lower():
+                raise RuntimeError("No active video chat in this group. Please start a video chat first.")
+            elif "not found" in str(e).lower():
+                raise RuntimeError("Video chat not found")
             logger.error(f"Failed to join call: {e}")
             raise
     
