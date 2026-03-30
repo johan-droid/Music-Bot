@@ -1,123 +1,115 @@
-"""Utility commands: /start, /help, /ping"""
+"""Utility commands: /help, /ping"""
 
 import time
+import platform
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from bot.utils.permissions import rate_limit
+from bot.utils.permissions import require_admin, rate_limit
 from config import config
 
 
-@Client.on_message(filters.command("start") & filters.private)
-@rate_limit
-async def start_cmd(client: Client, message: Message):
-    """Handle /start command."""
-    user = message.from_user
-    
-    text = f"""
-👋 **Hello {user.mention}!**
-
-I'm **BrokBot**, your private voice chat DJ inspired by the legendary musician from **One Piece** – Brok (aka Brook-style vibes).
-
-🧊 **Brok-themed Bot**:
-- Plays tunes like a midnight opera in the Thousand Sunny
-- Respects the crew: owner -> sudo -> admin controls
-- Contains “Yohoho!” status text by default
-
-**Key Features:**
-• 🎵 Stream from YouTube, Spotify, SoundCloud, JioSaavn
-• 🎛 Admin-only playback control
-• 📢 High-quality audio (48kHz PCM)
-• 🔄 Gapless playback with prefetch
-• 📋 Persistent queues per group
-
-**Commands:**
-Use /help to see all available commands.
-
-**Note:** I work in groups only. Add me to a group and give me admin rights with "Manage Voice Chats" permission!
-    """
-    
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Add to Group", url=f"https://t.me/{(await client.get_me()).username}?startgroup=true")],
-        [InlineKeyboardButton("📚 Full Help", callback_data="help"), InlineKeyboardButton("🧊 Brok Theme", callback_data="brok_info")]
-    ])
-    
-    await message.reply(text, reply_markup=buttons)
-
-
-@Client.on_message(filters.command("help"))
+@Client.on_message(filters.command("help") & (filters.private | filters.group))
 @rate_limit
 async def help_cmd(client: Client, message: Message):
-    """Handle /help command."""
-    
-    text = f"""
-📚 **Music Bot Commands**
+    """Handle /help command - open to everyone."""
 
-**🎵 Playback Commands (Admin Only):**
-• `/play [query/url]` - Play a song or add to queue
-• `/vplay [query/url]` - Play video (video mode)
-• `/pause` - Pause current playback
-• `/resume` - Resume playback  
-• `/skip` - Skip to next song
-• `/stop` or `/end` - Stop and clear queue
-• `/seek [seconds]` - Seek to position
-• `/replay` - Restart current track
-• `/volume [1-200]` - Adjust volume (default: 100)
+    text = """
+💀 **YOHOHOHO! Welcome Aboard the Thousand Sunny!**
 
-**📋 Queue Commands:**
-• `/queue` - Show current queue
-• `/clearqueue` - Clear all songs
-• `/remove [position]` - Remove specific song
-• `/shuffle` - Shuffle queue
+> *"I am Brook, the Soul King! Music is my life... even though I don't have one!"*
 
-**📊 Information:**
-• `/now` or `/np` - Now playing info
-• `/ping` - Check bot latency
+🎻 **Let me play you the song of my people... through this bot!**
 
-**⚙️ Admin Commands:**
-• `/addsudo [user]` - Grant sudo (owner only)
-• `/delsudo [user]` - Revoke sudo (owner only)
-• `/sudolist` - List sudo users
-• `/gban [user]` - Global ban (sudo+)
-• `/ungban [user]` - Remove global ban
-• `/block [user]` - Block in this group
-• `/unblock [user]` - Unblock in this group
-• `/stats` - Bot statistics
-• `/broadcast [message]` - Broadcast to all groups
-• `/restart` - Restart bot (owner only)
-• `/maintenance [on/off]` - Toggle maintenance
+━━━━━━━━━━━━━━━━━━━━━
+� **MUSIC COMMANDS**
+━━━━━━━━━━━━━━━━━━━━━
+� `/play [song]` — Request a song, Yohoho!
+🎬 `/vplay [video]` — Video mode *(Admin only)*
+⏸ `/pause` — Pause my performance
+▶️ `/resume` — Resume the concert
+⏭ `/skip` — Next track, please!
+⏹ `/stop` — Stop the music
+⏩ `/seek [sec]` — Jump in the track
+🔁 `/replay` — Play it again!
+🔊 `/volume [1-200]` — Louder! LOUDER!
 
-**Supported Sources:**
-• YouTube (URLs & search)
-• Spotify (metadata → YT)
-• SoundCloud
-• JioSaavn
-• Telegram audio files
+━━━━━━━━━━━━━━━━━━━━━
+📋 **QUEUE & PLAYLIST**
+━━━━━━━━━━━━━━━━━━━━━
+� `/queue` — The setlist
+🎧 `/now` — What's playing now?
+🗑️ `/clearqueue` — Clear the stage
+❌ `/remove [pos]` — Remove a song
+🔀 `/shuffle` — Mix it up!
+🔂 `/loop` — Loop mode *(track/queue/off)*
 
-**Note:** All playback commands require admin rights in the group.
+━━━━━━━━━━━━━━━━━━━━━
+⚔️ **CREW CAPTAIN COMMANDS**
+━━━━━━━━━━━━━━━━━━━━━
+👑 `/addsudo` — Promote to crew member *(Owner)*
+🚫 `/delsudo` — Demote
+📜 `/sudolist` — Crew roster
+📛 `/gban` — Banish from seas *(Sudo+)*
+✅ `/ungban` — Pardon
+🔒 `/block` — Block in group
+📊 `/stats` — Ship's log
+📢 `/broadcast` — Message all ports *(Owner)*
+🔄 `/restart` — Reboot *(Owner)*
+
+━━━━━━━━━━━━━━━━━━━━━
+🌐 **SUPPORTED SOURCES**
+━━━━━━━━━━━━━━━━━━━━━
+🎵 YouTube • Spotify • SoundCloud
+🎵 JioSaavn • Telegram Audio
+
+━━━━━━━━━━━━━━━━━━━━━
+💀 *"May I see your panties?"* — Just kidding! YOHOHOHO!
     """
-    
-    await message.reply(text)
+
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎵 Start Playing", switch_inline_query_current_chat=""),
+            InlineKeyboardButton("📢 Support", url=f"https://t.me/{config.SUPPORT_CHAT_LINK.lstrip('@')}" if hasattr(config, 'SUPPORT_CHAT_LINK') else "https://t.me/"),
+        ]
+    ])
+
+    await message.reply(text, reply_markup=buttons if hasattr(config, 'SUPPORT_CHAT_LINK') else None)
 
 
-@Client.on_message(filters.command("ping"))
+@Client.on_message(filters.command("ping") & (filters.private | filters.group))
 @rate_limit
 async def ping_cmd(client: Client, message: Message):
-    """Handle /ping command - check latency."""
-    start_time = time.time()
-    
-    # Send initial message
-    reply = await message.reply("🏓 **Pong!**")
-    
-    # Calculate latency
-    end_time = time.time()
-    latency = (end_time - start_time) * 1000
-    
-    # Edit with stats
-    text = f"""
-🏓 **Pong!**
+    """Check bot latency with a Brook-themed response."""
+    import os
+    import asyncio
 
-**Latency:** `{latency:.1f}ms`
-**Uptime:** Check /stats for details
+    start = time.monotonic()
+    reply = await message.reply("💀 *Pinging... even a skeleton can feel the beat!*")
+    latency = (time.monotonic() - start) * 1000
+
+    # Emoji quality indicator
+    if latency < 100:
+        quality = "🟢 Excellent"
+        brook_quote = "Fast as the rhythm of my violin! YOHOHOHO!"
+    elif latency < 300:
+        quality = "🟡 Good"
+        brook_quote = "Steady, like a soulful ballad!"
+    else:
+        quality = "🔴 High"
+        brook_quote = "A bit slow... even my bones react faster! Yohoho!"
+
+    # Build a mini visual bar for latency
+    bar_len = min(int(latency / 30), 10)
+    bar = "▰" * bar_len + "▱" * (10 - bar_len)
+
+    text = f"""
+💀 **PONG! The Soul King responds!**
+
+⚡ **Latency:** `{latency:.1f}ms`
+📊 **Signal:** `{bar}` {quality}
+🐍 **Python:** `{platform.python_version()}`
+
+💬 *\"{brook_quote}\"*
     """
-    
+
     await reply.edit(text)
