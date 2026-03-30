@@ -14,56 +14,35 @@ async def help_cmd(client: Client, message: Message):
     """Handle /help command - open to everyone."""
 
     text = """
-💀 **YOHOHOHO! Welcome Aboard the Thousand Sunny!**
+💀 **YOHOHOHO! The Soul King Presents...**
 
-> *"I am Brook, the Soul King! Music is my life... even though I don't have one!"*
+> *"Even without flesh, my music has SOUL!"*
+— **Brook, Living Skeleton & Gentleman**
 
-🎻 **Let me play you the song of my people... through this bot!**
+⚔️ **CAPTAIN'S ORDERS** *(Owner Only)*
+`👑 /addsudo` — Promote to First Mate
+`🚫 /delsudo` — Walk the plank
+`📢 /broadcast` — Message all crews
+`🔄 /restart` — Restart the ship
 
-━━━━━━━━━━━━━━━━━━━━━
-� **MUSIC COMMANDS**
-━━━━━━━━━━━━━━━━━━━━━
-� `/play [song]` — Request a song, Yohoho!
-🎬 `/vplay [video]` — Video mode *(Admin only)*
-⏸ `/pause` — Pause my performance
-▶️ `/resume` — Resume the concert
-⏭ `/skip` — Next track, please!
-⏹ `/stop` — Stop the music
-⏩ `/seek [sec]` — Jump in the track
-🔁 `/replay` — Play it again!
-🔊 `/volume [1-200]` — Louder! LOUDER!
+🦴 **CREW COMMANDS** *(All Mates Welcome)*
+`🎵 /play [song]` — Request a tune, Yohoho!
+`⏸ /pause` — Pause the soul
+`▶️ /resume` — Resume the rhythm
+`⏭ /skip` — Next melody
+`⏹ /stop` — Silence the violin
+`🔊 /volume` — Crank it to 11!
 
-━━━━━━━━━━━━━━━━━━━━━
-📋 **QUEUE & PLAYLIST**
-━━━━━━━━━━━━━━━━━━━━━
-� `/queue` — The setlist
-🎧 `/now` — What's playing now?
-🗑️ `/clearqueue` — Clear the stage
-❌ `/remove [pos]` — Remove a song
-🔀 `/shuffle` — Mix it up!
-🔂 `/loop` — Loop mode *(track/queue/off)*
+� **THE SETLIST** *(Queue Control)*
+`� /queue` — View the playlist
+`🔀 /shuffle` — Mix the tracks
+`� /loop` — Repeat the magic
+`�️ /clearqueue` — Clear the stage
 
-━━━━━━━━━━━━━━━━━━━━━
-⚔️ **CREW CAPTAIN COMMANDS**
-━━━━━━━━━━━━━━━━━━━━━
-👑 `/addsudo` — Promote to crew member *(Owner)*
-🚫 `/delsudo` — Demote
-📜 `/sudolist` — Crew roster
-📛 `/gban` — Banish from seas *(Sudo+)*
-✅ `/ungban` — Pardon
-🔒 `/block` — Block in group
-📊 `/stats` — Ship's log
-📢 `/broadcast` — Message all ports *(Owner)*
-🔄 `/restart` — Reboot *(Owner)*
+� **SUPPORTED SOURCES**
+YouTube • Spotify • SoundCloud • JioSaavn
 
-━━━━━━━━━━━━━━━━━━━━━
-🌐 **SUPPORTED SOURCES**
-━━━━━━━━━━━━━━━━━━━━━
-🎵 YouTube • Spotify • SoundCloud
-🎵 JioSaavn • Telegram Audio
-
-━━━━━━━━━━━━━━━━━━━━━
-💀 *"May I see your panties?"* — Just kidding! YOHOHOHO!
+💀 *"May your soul always find good music!"*
     """
 
     buttons = InlineKeyboardMarkup([
