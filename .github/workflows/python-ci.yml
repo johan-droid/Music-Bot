@@ -35,6 +35,12 @@ jobs:
         flake8 bot --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     
     - name: Test imports
+      env:
+        API_ID: 123456
+        API_HASH: test_hash_for_ci
+        BOT_TOKEN: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+        OWNER_ID: 123456789
+        SESSION_STRING_1: test_session_string_for_ci_only_not_real
       run: |
         python -c "from config import config; print('Config loaded successfully')"
         python -c "from bot.utils.audio_config import get_audio_optimizer; print('Audio config loaded successfully')"
