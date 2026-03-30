@@ -5,8 +5,7 @@ import asyncio
 from typing import Dict, Optional, Callable, List, Any
 from pyrogram import Client
 from pytgcalls import PyTgCalls
-from pytgcalls.types import MediaStream
-from pytgcalls.types.stream import StreamAudioEnded
+from pytgcalls.types import MediaStream, StreamEnded
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall
 
 from bot.utils.audio_config import get_audio_optimizer, AudioConfig, AudioQuality
@@ -177,7 +176,7 @@ class CallManager:
                 await call.unmute_stream(chat_id)
     
     # Event handlers
-    async def _on_stream_end(self, client, update: StreamAudioEnded):
+    async def _on_stream_end(self, client, update: StreamEnded):
         """Handle stream end event - triggers next song."""
         chat_id = update.chat_id
         logger.info(f"Stream ended in chat {chat_id}")
