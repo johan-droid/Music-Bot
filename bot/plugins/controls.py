@@ -258,13 +258,10 @@ async def volume_cmd(client: Client, message: Message):
     chat_id = message.chat.id
     
     if len(message.command) < 2:
-        # Show current volume
-        pipeline = ffmpeg_manager.get_pipeline(chat_id)
-        if pipeline:
-            vol = pipeline.volume
-            await message.reply(f"🔊 Current volume: {vol}%\nUsage: `/volume [1-200]`")
-        else:
-            await message.reply("🔊 Usage: `/volume [1-200]`\nDefault: 100%")
+        # Show current volume from settings
+        group = await db.get_group(chat_id)
+        vol = group.get("settings", {}).get("vol_default", 100)
+        await message.reply(f"🔊 Current volume: {vol}%\nUsage: `/volume [1-200]`")
         return
     
     try:

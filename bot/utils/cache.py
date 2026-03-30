@@ -55,7 +55,6 @@ class Cache:
     
     async def init(self):
         """Initialize with appropriate backend."""
-        global CACHE_MODE
         self.mode = CACHE_MODE
     
     def _get_backend(self):

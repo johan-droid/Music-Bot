@@ -17,8 +17,6 @@ async def init_userbots() -> List[Client]:
     Returns:
         List of started Client instances
     """
-    global userbot_clients
-    
     sessions = config.session_strings
     
     for i, session in enumerate(sessions, 1):
