@@ -193,19 +193,12 @@ async def handle_loop(client: Client, callback: CallbackQuery, chat_id: int):
 
 async def handle_brok_info(client: Client, callback: CallbackQuery, chat_id: int):
     """Handle the brok theme details callback."""
-    text = """
-🎵 **Brok Bot Theme**
-
-This bot is powered by a One Piece spirit:
-- Inspired by **Brok** (the skeleton musician of Thousand Sunny)
-- Always a bittersweet melody with humor and courage
-- VIP on sea voyages: works best with crew (group) roles
-
-🧊 **Special Traits**:
-- Uses high-quality audio like a pirate concert
-- Loves to say: **Yohohoho!**
-- Bottles messages as epic quotes
-    """
+    text = (
+        "🎵 **Brok Bot Theme**\n\n"
+        "💀 One Piece inspired music bot\n"
+        "🎸 High-quality audio\n"
+        "Yohohoho!"
+    )
     await callback.answer(text, show_alert=True)
 
 
