@@ -16,7 +16,12 @@ supabase_db = None
 DB_MODE = "sqlite"
 
 
-class MongoDatabase:
+class Database:
+    """Abstract marker class for supported database backends."""
+    pass
+
+
+class MongoDatabase(Database):
     """MongoDB database wrapper."""
     
     def __init__(self, client):
