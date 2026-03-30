@@ -40,6 +40,8 @@ async def callback_handler(client: Client, callback: CallbackQuery):
         "shuffle": handle_shuffle,
         "clearqueue": handle_clearqueue,
         "loop": handle_loop,
+        "brok_info": handle_brok_info,
+        "help": handle_help_info,
     }
     
     handler = handlers.get(data)
@@ -167,6 +169,37 @@ async def handle_loop(client: Client, callback: CallbackQuery, chat_id: int):
     
     mode_text = {"none": "Loop off", "track": "Loop track", "queue": "Loop queue"}
     await callback.answer(mode_text[new_mode])
+
+
+async def handle_brok_info(client: Client, callback: CallbackQuery, chat_id: int):
+    """Handle the brok theme details callback."""
+    text = """
+🎵 **Brok Bot Theme**
+
+This bot is powered by a One Piece spirit:
+- Inspired by **Brok** (the skeleton musician of Thousand Sunny)
+- Always a bittersweet melody with humor and courage
+- VIP on sea voyages: works best with crew (group) roles
+
+🧊 **Special Traits**:
+- Uses high-quality audio like a pirate concert
+- Loves to say: **Yohohoho!**
+- Bottles messages as epic quotes
+    """
+    await callback.answer(text, show_alert=True)
+
+
+async def handle_help_info(client: Client, callback: CallbackQuery, chat_id: int):
+    """Handle help callback prompt."""
+    text = """
+📚 Use /help in chat for full commands list.
+
+If you're in a group, use the following commands for playback:
+/play, /vplay, /pause, /resume, /skip, /stop, /queue
+
+🔧 Admin controls are required to manage voice chat.
+    """
+    await callback.answer(text, show_alert=True)
 
 
 async def handle_play_select(client: Client, callback: CallbackQuery, chat_id: int, user_id: int, data: str):

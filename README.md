@@ -206,7 +206,19 @@ Music-Bot/
                        └─────────────────┘
 ```
 
-## 🔄 Migration Guide
+## � Development
+
+### Update .gitignore
+- Added `bot/.env.local` to avoid leaking local credentials.
+- Added `.pytest_cache/` to ignore test runtime cache.
+- Keep existing ignored files: `__pycache__`, `.env`, `sessions`, `*.log`, `mongo-data`, `redis-data`.
+
+### Local run checklist
+1. Install deps: `pip install -r requirements.txt`
+2. Run healthy CI commands: `flake8`, `pytest`.
+3. Verify startup imports: `python -c "from bot import db, call_manager, bot_client"`.
+
+## �🔄 Migration Guide
 
 ### MongoDB → Supabase
 ```bash
@@ -244,6 +256,20 @@ docker-compose down
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
 
 ## 🛠 Troubleshooting
+
+### CI / local test workflow
+- Install dependencies:
+  - `python -m pip install --upgrade pip`
+  - `pip install -r requirements.txt`
+  - `pip install flake8 pytest`
+- Run linters:
+  - `flake8 bot --count --select=E9,F63,F7,F82 --show-source --statistics`
+  - `flake8 bot --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics`
+- Validate config and core imports:
+  - `python -c "from config import config; print('Config loaded')"`
+  - `python -c "from bot.utils.title_detector import conflict_resolver; print('Title detector loaded')"`
+  - `python -c "from bot import db, call_manager, bot_client; print('Bot imports OK')"`
+- If you hit `ImportError: cannot import name 'Database'`, ensure `bot/utils/database.py` defines `class Database` and that `MongoDatabase` inherits from it.
 
 ### No audio in Video Chat
 - Ensure userbot is admin with "Manage Video Chats" permission

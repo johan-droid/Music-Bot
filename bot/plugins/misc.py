@@ -16,7 +16,12 @@ async def start_cmd(client: Client, message: Message):
     text = f"""
 👋 **Hello {user.mention}!**
 
-I'm a **Voice Chat Music Bot** that streams high-quality audio into Telegram group voice calls.
+I'm **BrokBot**, your private voice chat DJ inspired by the legendary musician from **One Piece** – Brok (aka Brook-style vibes).
+
+🧊 **Brok-themed Bot**:
+- Plays tunes like a midnight opera in the Thousand Sunny
+- Respects the crew: owner -> sudo -> admin controls
+- Contains “Yohoho!” status text by default
 
 **Key Features:**
 • 🎵 Stream from YouTube, Spotify, SoundCloud, JioSaavn
@@ -33,7 +38,7 @@ Use /help to see all available commands.
     
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Add to Group", url=f"https://t.me/{(await client.get_me()).username}?startgroup=true")],
-        [InlineKeyboardButton("📖 Help", callback_data="help")]
+        [InlineKeyboardButton("📚 Full Help", callback_data="help"), InlineKeyboardButton("🧊 Brok Theme", callback_data="brok_info")]
     ])
     
     await message.reply(text, reply_markup=buttons)

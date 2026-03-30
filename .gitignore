@@ -38,3 +38,9 @@ cookies.txt
 # Docker volumes
 mongo-data/
 redis-data/
+
+# Local workspace config
+bot/.env.local
+
+# Pytest cache
+.pytest_cache/
