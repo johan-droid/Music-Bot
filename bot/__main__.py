@@ -38,18 +38,21 @@ async def main():
         # Initialize userbots first (needed for calls)
         userbots = await init_userbots()
         logger.info(f"Initialized {len(userbots)} userbot(s)")
-        
-        # Initialize py-tgcalls
-        await init_calls(userbots)
-        logger.info("Call manager initialized")
-        
-        # Start cleanup scheduler
-        start_scheduler()
-        logger.info("Cleanup scheduler started")
-        
-        # Initialize bot client (this will block)
-        bot = await init_bot()
-        logger.info("Bot started successfully")
+
+        if config.TELEGRAM_ENABLED:
+            # Initialize py-tgcalls
+            await init_calls(userbots)
+            logger.info("Call manager initialized")
+
+            # Start cleanup scheduler
+            start_scheduler()
+            logger.info("Cleanup scheduler started")
+
+            # Initialize bot client (this will block)
+            bot = await init_bot()
+            logger.info("Bot started successfully")
+        else:
+            logger.info("TELEGRAM_ENABLED is false; skipping calls and bot startup")
         
     except Exception as e:
         logger.exception("Failed to start bot")

@@ -5,18 +5,22 @@ from typing import Optional, List
 class Config(BaseSettings):
     """Bot configuration loaded from environment variables."""
     
+    # Telegram API mode (set FALSE to run without Telegram client auth)
+    TELEGRAM_ENABLED: bool = True
+
     # Telegram API credentials (from my.telegram.org)
-    API_ID: int
-    API_HASH: str
+    # Required only when TELEGRAM_ENABLED=true
+    API_ID: Optional[int] = None
+    API_HASH: Optional[str] = None
     
     # Bot token from @BotFather
-    BOT_TOKEN: str
+    BOT_TOKEN: Optional[str] = None
     
     # Owner user ID
-    OWNER_ID: int
+    OWNER_ID: Optional[int] = None
     
-    # Userbot session strings (1 required, 2-5 optional for scaling)
-    SESSION_STRING_1: str
+    # Userbot session strings (1 required when TELEGRAM_ENABLED=true)
+    SESSION_STRING_1: Optional[str] = None
     SESSION_STRING_2: Optional[str] = None
     SESSION_STRING_3: Optional[str] = None
     SESSION_STRING_4: Optional[str] = None

@@ -8,13 +8,7 @@ from config import config
 logger = logging.getLogger(__name__)
 
 # Global bot client instance
-bot_client = Client(
-    "musicbot",
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN,
-    workdir="./sessions",
-)
+bot_client = None
 
 
 async def init_bot():
@@ -22,13 +16,25 @@ async def init_bot():
     
     Auto-loads all plugins from bot/plugins/ directory.
     """
-    # Start the bot (this blocks until stopped)
+    if not config.TELEGRAM_ENABLED:
+        logger.info("TELEGRAM_ENABLED is false; skipping bot client initialization")
+        return None
+
+    if not config.BOT_TOKEN or not config.API_ID or not config.API_HASH:
+        raise RuntimeError("BOT_TOKEN, API_ID, and API_HASH are required when TELEGRAM_ENABLED is true")
+
+    global bot_client
+    bot_client = Client(
+        "musicbot",
+        api_id=config.API_ID,
+        api_hash=config.API_HASH,
+        bot_token=config.BOT_TOKEN,
+        workdir="./sessions",
+    )
+
     await bot_client.start()
-    
     bot_info = await bot_client.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
-    
-    # Keep running
+
     await bot_client.idle()
-    
     return bot_client

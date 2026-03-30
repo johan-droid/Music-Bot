@@ -17,8 +17,17 @@ async def init_userbots() -> List[Client]:
     Returns:
         List of started Client instances
     """
+    if not config.TELEGRAM_ENABLED:
+        logger.info("TELEGRAM_ENABLED is false; skipping userbot initialization")
+        return []
+
+    if not config.API_ID or not config.API_HASH:
+        raise RuntimeError("API_ID and API_HASH are required when TELEGRAM_ENABLED is true")
+
     sessions = config.session_strings
-    
+    if not sessions:
+        raise RuntimeError("At least one SESSION_STRING is required when TELEGRAM_ENABLED is true")
+
     for i, session in enumerate(sessions, 1):
         try:
             client = Client(
