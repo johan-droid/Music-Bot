@@ -215,6 +215,7 @@ dependencies = [
  "tgcalls",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",

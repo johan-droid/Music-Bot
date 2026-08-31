@@ -95,6 +95,7 @@ struct YtSearchHit {
     thumbnail_url: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct YouTubeResolver {
     client: reqwest::Client,
@@ -107,6 +108,7 @@ pub struct YouTubeResolver {
     yt_dlp_timeout: Duration,
 }
 
+#[allow(dead_code)]
 impl YouTubeResolver {
     const INNERTUBE_USER_AGENT: &'static str =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -337,9 +339,8 @@ impl YouTubeResolver {
         }
         let first = String::from_utf8_lossy(&output.stdout)
             .lines()
-            .next()
             .map(|s| s.trim().to_string())
-            .filter(|s| s.starts_with("https://"))?;
+            .find(|s| s.starts_with("https://"))?;
         Some(first)
     }
 
@@ -490,23 +491,19 @@ impl SourceAdapter for YouTubeResolver {
             .or(extracted.as_deref())
             .ok_or_else(|| BotError::NotFound("Track missing YouTube videoId".to_string()))?;
 
-        if let Some(url) = self.innertube_resolve(video_id).await {
-            return Ok(ResolvedAudio {
-                file_url: url,
-                headers: None,
-                is_direct: true,
-            });
-        }
+        let port = std::env::var("PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(8000);
+        let stream_url = format!("http://127.0.0.1:{port}/stream?yt={video_id}");
 
-        if let Some(url) = self.ytdlp_resolve(video_id).await {
-            return Ok(ResolvedAudio {
-                file_url: url,
-                headers: None,
-                is_direct: true,
-            });
-        }
+        tracing::info!(video_id = %video_id, stream_url = %stream_url, "Resolved YouTube track to real-time piped audio stream URL");
 
-        Err(BotError::NotFound(format!("Failed to resolve stream for YouTube video {video_id}")))
+        Ok(ResolvedAudio {
+            file_url: stream_url,
+            headers: None,
+            is_direct: true,
+        })
     }
 }
 

@@ -44,13 +44,38 @@ impl LoopMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VoiceState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Leaving,
+}
+
+impl VoiceState {
+    pub fn display_text(self) -> &'static str {
+        match self {
+            VoiceState::Disconnected => "DISCONNECTED 🔴",
+            VoiceState::Connecting => "CONNECTING 🟡",
+            VoiceState::Connected => "CONNECTED 🟢",
+            VoiceState::Leaving => "LEAVING 🟠",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EngineState {
     Idle,
+    Joining,
     Queued,
+    Ready,
+    Loading,
     Playing,
     Paused,
-    Stopping,
     Skipping,
+    Stopping,
+    WaitingForVc,
+    Disconnected,
+    Recovering,
     Finished,
     Error,
 }
@@ -59,11 +84,17 @@ impl EngineState {
     pub fn display_text(self) -> &'static str {
         match self {
             EngineState::Idle => "IDLE",
+            EngineState::Joining => "JOINING",
             EngineState::Queued => "QUEUED",
+            EngineState::Ready => "READY",
+            EngineState::Loading => "LOADING",
             EngineState::Playing => "PLAYING",
             EngineState::Paused => "PAUSED",
-            EngineState::Stopping => "STOPPING",
             EngineState::Skipping => "SKIPPING",
+            EngineState::Stopping => "STOPPING",
+            EngineState::WaitingForVc => "WAITING FOR VC",
+            EngineState::Disconnected => "DISCONNECTED",
+            EngineState::Recovering => "RECOVERING",
             EngineState::Finished => "FINISHED",
             EngineState::Error => "ERROR",
         }
@@ -80,6 +111,12 @@ pub struct PlaybackState {
     pub queue_len: usize,
     pub history_len: usize,
     pub engine_state: EngineState,
+    pub voice_state: VoiceState,
+    pub playback_generation: u64,
+    pub vc_generation: u64,
+    pub last_error: Option<String>,
+    pub player_message_id: Option<i32>,
+    pub queue: Vec<Track>,
 }
 
 pub const HISTORY_LIMIT: usize = 50;
@@ -97,7 +134,12 @@ pub struct ChatQueueState {
     pub is_paused: bool,
     pub position_secs: u64,
     pub engine_state: EngineState,
+    pub voice_state: VoiceState,
+    pub playback_generation: u64,
+    pub vc_generation: u64,
     pub transition_in_progress: bool,
+    pub last_error: Option<String>,
+    pub player_message_id: Option<i32>,
     max_queue_size: usize,
 }
 
@@ -112,7 +154,12 @@ impl ChatQueueState {
             is_paused: false,
             position_secs: 0,
             engine_state: EngineState::Idle,
+            voice_state: VoiceState::Disconnected,
+            playback_generation: 0,
+            vc_generation: 0,
             transition_in_progress: false,
+            last_error: None,
+            player_message_id: None,
             max_queue_size,
         }
     }
@@ -134,6 +181,33 @@ impl ChatQueueState {
         self.engine_state = final_state;
         self.transition_in_progress = false;
         info!("[PLAYBACK] state: {:?} -> {:?}", prev, final_state);
+    }
+
+    pub fn reconcile(&mut self) {
+        if self.voice_state == VoiceState::Disconnected {
+            if self.engine_state == EngineState::Playing || self.engine_state == EngineState::Paused {
+                info!("[RECONCILE] Playing/Paused state contradiction detected while VC is Disconnected; invalidating generation and resetting runtime state");
+                self.playback_generation += 1;
+                self.transition_in_progress = false;
+                self.is_paused = false;
+                if let Some(curr) = self.current.take() {
+                    info!("[RECONCILE] preserving interrupted active track '{}' at queue head", curr.title);
+                    self.queue.push_front(curr);
+                }
+                self.position_secs = 0;
+                self.engine_state = if self.queue.is_empty() {
+                    EngineState::Idle
+                } else {
+                    EngineState::WaitingForVc
+                };
+            }
+        }
+
+        if self.current.is_none() && self.queue.is_empty() && self.engine_state != EngineState::Idle && self.engine_state != EngineState::WaitingForVc {
+            info!("[RECONCILE] empty queue and no active track detected; resetting engine_state to IDLE");
+            self.engine_state = EngineState::Idle;
+            self.transition_in_progress = false;
+        }
     }
 
     pub fn enqueue(&mut self, track: Track) -> Option<usize> {
@@ -179,9 +253,10 @@ impl ChatQueueState {
     }
 
     pub fn skip(&mut self) -> Result<Option<Track>> {
-        if self.current.is_none() {
-            info!("[COMMAND] /skip called when no track is playing; queue unchanged");
-            return Err(BotError::NotFound("Nothing is currently playing".to_string()));
+        self.playback_generation += 1;
+        if self.current.is_none() && self.queue.is_empty() {
+            info!("[COMMAND] /skip called when no track is playing or queued; queue unchanged");
+            return Err(BotError::NotFound("Nothing is currently playing or queued".to_string()));
         }
 
         if !self.begin_transition(EngineState::Skipping) {
@@ -220,6 +295,24 @@ impl ChatQueueState {
 
         self.end_transition(final_state);
         Ok(next)
+    }
+
+    pub fn on_voice_disconnected(&mut self) {
+        info!("[VOICE] voice disconnected event received, invalidating playback generation");
+        self.voice_state = VoiceState::Disconnected;
+        self.playback_generation += 1;
+        self.transition_in_progress = false;
+        
+        if let Some(curr) = self.current.take() {
+            info!("[VOICE] preserving disconnected active track '{}' at head of queue", curr.title);
+            self.queue.push_front(curr);
+        }
+        self.position_secs = 0;
+        self.engine_state = if self.queue.is_empty() {
+            EngineState::Idle
+        } else {
+            EngineState::WaitingForVc
+        };
     }
 
     pub fn prev_track(&mut self) -> Option<Track> {
@@ -299,6 +392,8 @@ impl ChatQueueState {
         self.position_secs = 0;
         self.is_paused = false;
         self.engine_state = EngineState::Idle;
+        self.voice_state = VoiceState::Disconnected;
+        self.playback_generation += 1;
         self.transition_in_progress = false;
         info!("[PLAYBACK] state: -> IDLE, stage cleared");
     }
@@ -417,6 +512,27 @@ impl InMemoryQueueRepository {
         Ok(())
     }
 
+    pub async fn set_voice_state(&self, chat_id: i64, voice_state: VoiceState) -> Result<()> {
+        let state = self.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        lock.voice_state = voice_state;
+        Ok(())
+    }
+
+    pub async fn on_voice_disconnected(&self, chat_id: i64) -> Result<()> {
+        let state = self.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        lock.on_voice_disconnected();
+        Ok(())
+    }
+
+    pub async fn set_player_message_id(&self, chat_id: i64, message_id: Option<i32>) -> Result<()> {
+        let state = self.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        lock.player_message_id = message_id;
+        Ok(())
+    }
+
     pub async fn get_playback_state(&self, chat_id: i64) -> Result<PlaybackState> {
         let state = self.get_or_create(chat_id);
         let lock = state.read().await;
@@ -429,6 +545,12 @@ impl InMemoryQueueRepository {
             queue_len: lock.queue.len(),
             history_len: lock.history.len(),
             engine_state: lock.engine_state,
+            voice_state: lock.voice_state,
+            playback_generation: lock.playback_generation,
+            vc_generation: lock.vc_generation,
+            last_error: lock.last_error.clone(),
+            player_message_id: lock.player_message_id,
+            queue: lock.queue.iter().cloned().collect(),
         })
     }
 
@@ -616,12 +738,31 @@ impl MediaEngine {
         Self { repo, transport }
     }
 
+    pub async fn reconcile_session(&self, chat_id: i64) -> Result<PlaybackState> {
+        let state = self.repo.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        lock.reconcile();
+        drop(lock);
+        self.repo.get_playback_state(chat_id).await
+    }
+
     pub async fn play(&self, chat_id: i64, track: &Track) -> Result<()> {
-        if let Err(e) = self.transport.deliver(chat_id, track).await {
-            let _ = self.repo.clear_current(chat_id).await;
-            let _ = self.transport.stop(chat_id).await;
-            return Err(e);
+        match self.transport.deliver(chat_id, track).await {
+            Ok(_) => {
+                let _ = self.repo.set_voice_state(chat_id, VoiceState::Connected).await;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.repo.on_voice_disconnected(chat_id).await;
+                let _ = self.transport.stop(chat_id).await;
+                Err(e)
+            }
         }
+    }
+
+    pub async fn on_voice_disconnected(&self, chat_id: i64) -> Result<()> {
+        self.repo.on_voice_disconnected(chat_id).await?;
+        let _ = self.transport.stop(chat_id).await;
         Ok(())
     }
 
@@ -638,6 +779,45 @@ impl MediaEngine {
     pub async fn skip(&self, chat_id: i64) -> Result<Option<Track>> {
         let next = self.repo.skip_track(chat_id).await?;
         if let Some(track) = &next {
+            if let Err(e) = self.transport.deliver(chat_id, track).await {
+                let _ = self.repo.on_voice_disconnected(chat_id).await;
+                return Err(e);
+            }
+            let _ = self.repo.set_voice_state(chat_id, VoiceState::Connected).await;
+        } else {
+            self.transport.stop(chat_id).await?;
+            let _ = self.repo.set_voice_state(chat_id, VoiceState::Disconnected).await;
+        }
+        Ok(next)
+    }
+
+    pub async fn on_natural_end_with_generation(
+        &self,
+        chat_id: i64,
+        expected_generation: u64,
+    ) -> Result<Option<Track>> {
+        let state = self.repo.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        if lock.playback_generation != expected_generation {
+            info!(
+                chat_id,
+                expected = expected_generation,
+                current = lock.playback_generation,
+                "[PLAYBACK] generation token mismatch; discarding stale EOF callback"
+            );
+            return Ok(lock.current.clone());
+        }
+        if lock.transition_in_progress {
+            info!("[PLAYBACK] transition in progress, skipping natural end execution");
+            return Ok(lock.current.clone());
+        }
+        lock.begin_transition(EngineState::Finished);
+        let next = lock.on_track_end();
+        let final_state = if next.is_some() { EngineState::Playing } else { EngineState::Idle };
+        lock.end_transition(final_state);
+        drop(lock);
+
+        if let Some(track) = &next {
             self.transport.deliver(chat_id, track).await?;
         } else {
             self.transport.stop(chat_id).await?;
@@ -646,26 +826,12 @@ impl MediaEngine {
     }
 
     pub async fn on_natural_end(&self, chat_id: i64) -> Result<Option<Track>> {
-        let state = self.repo.get_or_create(chat_id);
-        let next = {
-            let mut lock = state.write().await;
-            if lock.transition_in_progress {
-                info!("[PLAYBACK] transition in progress, skipping natural end execution");
-                return Ok(lock.current.clone());
-            }
-            lock.begin_transition(EngineState::Finished);
-            let next = lock.on_track_end();
-            let final_state = if next.is_some() { EngineState::Playing } else { EngineState::Idle };
-            lock.end_transition(final_state);
-            next
+        let gen = {
+            let state = self.repo.get_or_create(chat_id);
+            let lock = state.read().await;
+            lock.playback_generation
         };
-
-        if let Some(track) = &next {
-            self.transport.deliver(chat_id, track).await?;
-        } else {
-            self.transport.stop(chat_id).await?;
-        }
-        Ok(next)
+        self.on_natural_end_with_generation(chat_id, gen).await
     }
 
     pub async fn prev(&self, chat_id: i64) -> Result<Option<Track>> {

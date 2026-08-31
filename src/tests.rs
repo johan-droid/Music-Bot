@@ -335,4 +335,62 @@ mod tests {
         assert!(!db.is_connected());
         db.log_analytics("track_play", "yt:x5jfluo1_Yc").await.unwrap();
     }
+
+    #[test]
+    fn test_voice_disconnect_preserves_queue_and_sets_waiting_for_vc() {
+        use crate::media_engine::{ChatQueueState, EngineState, VoiceState};
+
+        let mut q = ChatQueueState::new(100, 100);
+        q.enqueue(track("t1", "Song A"));
+        q.enqueue(track("t2", "Song B"));
+        q.next_track();
+
+        q.voice_state = VoiceState::Connected;
+        assert_eq!(q.engine_state, EngineState::Playing);
+        assert_eq!(q.playback_generation, 0);
+
+        // Assistant leaves / VC disconnected
+        q.on_voice_disconnected();
+
+        assert_eq!(q.voice_state, VoiceState::Disconnected);
+        assert_eq!(q.engine_state, EngineState::WaitingForVc);
+        assert_eq!(q.playback_generation, 1);
+        assert_eq!(q.queue.len(), 2);
+        assert_eq!(q.queue[0].title, "Song A");
+        assert_eq!(q.queue[1].title, "Song B");
+    }
+
+    #[test]
+    fn test_skip_increments_playback_generation() {
+        use crate::media_engine::ChatQueueState;
+
+        let mut q = ChatQueueState::new(100, 100);
+        q.enqueue(track("t1", "Song A"));
+        q.next_track();
+        assert_eq!(q.playback_generation, 0);
+
+        let gen_before = q.playback_generation;
+        let _ = q.skip();
+        assert_eq!(q.playback_generation, gen_before + 1);
+    }
+
+    #[test]
+    fn test_reconcile_repairs_playing_contradiction_when_vc_disconnected() {
+        use crate::media_engine::{ChatQueueState, EngineState, VoiceState};
+
+        let mut q = ChatQueueState::new(100, 100);
+        q.enqueue(track("t1", "Song A"));
+        q.next_track();
+
+        // Simulate state corruption: Playing state but VC Disconnected
+        q.voice_state = VoiceState::Disconnected;
+        q.engine_state = EngineState::Playing;
+
+        q.reconcile();
+
+        assert_eq!(q.engine_state, EngineState::WaitingForVc);
+        assert_eq!(q.queue.len(), 1);
+        assert_eq!(q.queue[0].title, "Song A");
+        assert_eq!(q.playback_generation, 1);
+    }
 }

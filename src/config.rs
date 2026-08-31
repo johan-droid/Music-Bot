@@ -195,7 +195,7 @@ impl Config {
             .collect();
 
         let resolver_cache_ttl_secs = env::var("RESOLVER_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
-        let stream_cache_ttl_secs = env::var("RESOLVER_STREAM_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(3600);
+        let stream_cache_ttl_secs = env::var("RESOLVER_STREAM_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
         let youtube_enabled = env::var("YOUTUBE_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true);
         let yt_dlp_enabled = env::var("YT_DLP_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true);
         let yt_dlp_binary = env::var("YT_DLP_BINARY").unwrap_or_else(|_| "yt-dlp".to_string());

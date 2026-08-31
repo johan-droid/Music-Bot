@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::config::Config;
 use crate::error::Result;
@@ -91,7 +91,7 @@ impl AiReceiver {
             .ok()?;
 
         if !resp.status().is_success() {
-            warn!(status = %resp.status(), "NVIDIA NIM API request failed; falling back to local receiver");
+            debug!(status = %resp.status(), "NVIDIA NIM API request non-200; falling back to local receiver");
             return None;
         }
 

@@ -84,3 +84,5 @@ desktop.ini
 # Miscellaneous
 install.cmd
 .pytest_cache/
+*.html
+static/*.html
