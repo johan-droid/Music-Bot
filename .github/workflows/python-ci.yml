@@ -1,4 +1,4 @@
-name: Python CI
+name: CI
 
 on:
   push:
@@ -7,46 +7,21 @@ on:
     branches: [ master, main ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        pip install -r requirements-dev.txt
-    
-    - name: Lint with flake8
-      run: |
-        flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 app --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Run tests
-      env:
-        API_ID: 123456
-        API_HASH: test_hash_for_ci
-        BOT_TOKEN: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-        OWNER_ID: 123456789
-        SESSION_STRING_1: test_session_string_for_ci_only_not_real
-      run: |
-        python -m pytest app/tests -q
 
-    - name: Test imports
-      env:
-        API_ID: 123456
-        API_HASH: test_hash_for_ci
-        BOT_TOKEN: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-        OWNER_ID: 123456789
-        SESSION_STRING_1: test_session_string_for_ci_only_not_real
-      run: |
-        python -c "from app.config_loader import config; print('Config loaded successfully')"
-        python -c "from app.utils.audio_config import get_audio_optimizer; print('Audio config loaded successfully')"
-        python -c "from app.utils.title_detector import conflict_resolver; print('Title detector loaded successfully')"
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Check compilation
+      run: cargo check --release
+
+    - name: Run unit & integration tests
+      run: cargo test --release -- --nocapture
+
