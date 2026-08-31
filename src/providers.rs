@@ -108,7 +108,6 @@ pub struct YouTubeResolver {
 }
 
 impl YouTubeResolver {
-    const INNERTUBE_API_KEY: &'static str = "AIzaSyAO_FJ2Slq4n4S3e5w1u2g1n-4u5t-6v7w";
     const INNERTUBE_USER_AGENT: &'static str =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -199,9 +198,11 @@ impl YouTubeResolver {
     }
 
     async fn innertube_post(&self, endpoint: &str, body: Value) -> Option<Value> {
+        let api_key = std::env::var("INNERTUBE_API_KEY")
+            .or_else(|_| std::env::var("YOUTUBE_API_KEY"))
+            .unwrap_or_default();
         let url = format!(
-            "https://www.youtube.com/youtubei/v1/{endpoint}?prettyPrint=false&key={}",
-            Self::INNERTUBE_API_KEY
+            "https://www.youtube.com/youtubei/v1/{endpoint}?prettyPrint=false&key={api_key}"
         );
         let resp = self
             .client
