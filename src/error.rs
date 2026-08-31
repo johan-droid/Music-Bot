@@ -17,6 +17,9 @@ pub enum BotError {
     #[error("Rate limited by platform: {0}")]
     RateLimited(String),
 
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

@@ -111,6 +111,9 @@ async fn api_state_handler(
         voice_state: VoiceState::Disconnected,
         playback_generation: 0,
         vc_generation: 0,
+        owner_user_id: None,
+        owner_user_name: String::new(),
+        session_id: String::new(),
         last_error: None,
         player_message_id: None,
         queue: Vec::new(),
@@ -314,7 +317,32 @@ async fn main() -> anyhow::Result<()> {
         axum::serve(listener, app).await.unwrap();
     });
 
-    // 5. Background In-Group Telegram Progress Ticker
+    // 5a. 1-second Playback Ticker: Advances position_secs, triggers advance_to_next_track on EOF, and prunes idle sessions
+    let me_playback_ticker = state.media_engine.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut tick_counter: u64 = 0;
+        loop {
+            interval.tick().await;
+            tick_counter += 1;
+            if tick_counter % 60 == 0 {
+                me_playback_ticker.repo.prune_inactive_sessions(Duration::from_secs(1800));
+            }
+            let active_chats = me_playback_ticker.repo.active_chats();
+            for chat_id in active_chats {
+                if let Ok(st) = me_playback_ticker.state(chat_id).await {
+                    if !st.is_paused && st.engine_state == crate::media_engine::EngineState::Playing && st.voice_state == crate::media_engine::VoiceState::Connected {
+                        if let Ok(true) = me_playback_ticker.repo.tick_seconds(chat_id, 1).await {
+                            tracing::info!(chat_id, "[TICKER] track reached EOF duration; advancing to next track");
+                            let _ = me_playback_ticker.advance_to_next_track(chat_id, crate::media_engine::TransitionReason::Eof).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // 5b. Background In-Group Telegram Progress Ticker
     if let Some(bot_ticker) = bot.clone() {
         let me_ticker = state.media_engine.clone();
         tokio::spawn(async move {

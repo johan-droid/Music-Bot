@@ -114,6 +114,9 @@ pub struct PlaybackState {
     pub voice_state: VoiceState,
     pub playback_generation: u64,
     pub vc_generation: u64,
+    pub owner_user_id: Option<i64>,
+    pub owner_user_name: String,
+    pub session_id: String,
     pub last_error: Option<String>,
     pub player_message_id: Option<i32>,
     pub queue: Vec<Track>,
@@ -121,6 +124,14 @@ pub struct PlaybackState {
 
 pub const HISTORY_LIMIT: usize = 50;
 pub const UNKNOWN_DURATION_LIMIT_SECS: u64 = 600;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransitionReason {
+    Eof,
+    Skip,
+    Failure,
+    UserAction,
+}
 
 // --- Chat Queue State ---
 
@@ -137,6 +148,9 @@ pub struct ChatQueueState {
     pub voice_state: VoiceState,
     pub playback_generation: u64,
     pub vc_generation: u64,
+    pub owner_user_id: Option<i64>,
+    pub owner_user_name: String,
+    pub session_id: String,
     pub transition_in_progress: bool,
     pub last_error: Option<String>,
     pub player_message_id: Option<i32>,
@@ -157,10 +171,21 @@ impl ChatQueueState {
             voice_state: VoiceState::Disconnected,
             playback_generation: 0,
             vc_generation: 0,
+            owner_user_id: None,
+            owner_user_name: String::new(),
+            session_id: uuid::Uuid::new_v4().to_string(),
             transition_in_progress: false,
             last_error: None,
             player_message_id: None,
             max_queue_size,
+        }
+    }
+
+    pub fn set_session_owner(&mut self, user_id: i64, user_name: &str) {
+        if self.owner_user_id.is_none() {
+            info!("[SESSION] Assigned session controller: user_id={}, name='{}'", user_id, user_name);
+            self.owner_user_id = Some(user_id);
+            self.owner_user_name = user_name.to_string();
         }
     }
 
@@ -181,6 +206,22 @@ impl ChatQueueState {
         self.engine_state = final_state;
         self.transition_in_progress = false;
         info!("[PLAYBACK] state: {:?} -> {:?}", prev, final_state);
+    }
+
+    pub fn assert_invariants(&mut self) {
+        if self.engine_state == EngineState::Playing && self.current.is_none() {
+            warn!("[INVARIANT_VIOLATION] EngineState is Playing but current track is None! Self-healing state -> IDLE");
+            self.engine_state = EngineState::Idle;
+            self.transition_in_progress = false;
+        }
+
+        if self.current.is_none() && self.queue.is_empty() && self.voice_state == VoiceState::Disconnected {
+            if self.engine_state != EngineState::Idle {
+                info!("[INVARIANT_VIOLATION] Disconnected & empty queue state contradiction! Self-healing state -> IDLE");
+                self.engine_state = EngineState::Idle;
+                self.transition_in_progress = false;
+            }
+        }
     }
 
     pub fn reconcile(&mut self) {
@@ -208,12 +249,16 @@ impl ChatQueueState {
             self.engine_state = EngineState::Idle;
             self.transition_in_progress = false;
         }
+
+        self.assert_invariants();
     }
 
-    pub fn enqueue(&mut self, track: Track) -> Option<usize> {
+    pub fn enqueue(&mut self, mut track: Track) -> Option<usize> {
         if self.queue.len() >= self.max_queue_size {
             return None;
         }
+        // Assign unique runtime TrackId so identical song requests are distinct queue items
+        track.id = crate::router::TrackId::new(format!("{}_{}", track.id.0, uuid::Uuid::new_v4()));
         let pos = self.queue.len() + 1;
         self.queue.push_back(track);
         if self.engine_state == EngineState::Idle && self.current.is_none() {
@@ -221,6 +266,26 @@ impl ChatQueueState {
         }
         info!("[QUEUE] remaining: {}", self.queue.len());
         Some(pos)
+    }
+
+    pub fn tick_seconds(&mut self, secs: u64) -> bool {
+        let Some(track) = self.current.as_ref() else { return false; };
+        if self.is_paused {
+            return false;
+        }
+        self.position_secs += secs;
+        let effective_duration = if track.duration_secs == 0 {
+            UNKNOWN_DURATION_LIMIT_SECS
+        } else {
+            track.duration_secs
+        };
+
+        if self.position_secs >= effective_duration {
+            self.position_secs = 0;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn next_track(&mut self) -> Option<Track> {
@@ -394,6 +459,9 @@ impl ChatQueueState {
         self.engine_state = EngineState::Idle;
         self.voice_state = VoiceState::Disconnected;
         self.playback_generation += 1;
+        self.owner_user_id = None;
+        self.owner_user_name = String::new();
+        self.session_id = uuid::Uuid::new_v4().to_string();
         self.transition_in_progress = false;
         info!("[PLAYBACK] state: -> IDLE, stage cleared");
     }
@@ -420,6 +488,26 @@ impl InMemoryQueueRepository {
             max_queue_size,
             default_volume,
         }
+    }
+
+    pub fn prune_inactive_sessions(&self, _max_idle: Duration) {
+        self.queues.retain(|chat_id, queue_arc| {
+            if let Ok(lock) = queue_arc.try_read() {
+                let is_active = lock.engine_state == EngineState::Playing
+                    || lock.engine_state == EngineState::Loading
+                    || lock.voice_state == VoiceState::Connected
+                    || lock.current.is_some()
+                    || !lock.queue.is_empty();
+                if is_active {
+                    true
+                } else {
+                    info!(chat_id, "[PRUNE] Evicting inactive idle chat session from memory");
+                    false
+                }
+            } else {
+                true
+            }
+        });
     }
 
     pub fn get_or_create(&self, chat_id: i64) -> Arc<RwLock<ChatQueueState>> {
@@ -491,6 +579,12 @@ impl InMemoryQueueRepository {
         Ok(())
     }
 
+    pub async fn tick_seconds(&self, chat_id: i64, seconds: u64) -> Result<bool> {
+        let state = self.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        Ok(lock.tick_seconds(seconds))
+    }
+
     pub async fn set_position(&self, chat_id: i64, seconds: u64) -> Result<()> {
         let state = self.get_or_create(chat_id);
         let mut lock = state.write().await;
@@ -526,6 +620,13 @@ impl InMemoryQueueRepository {
         Ok(())
     }
 
+    pub async fn set_session_owner(&self, chat_id: i64, user_id: i64, user_name: &str) -> Result<()> {
+        let state = self.get_or_create(chat_id);
+        let mut lock = state.write().await;
+        lock.set_session_owner(user_id, user_name);
+        Ok(())
+    }
+
     pub async fn set_player_message_id(&self, chat_id: i64, message_id: Option<i32>) -> Result<()> {
         let state = self.get_or_create(chat_id);
         let mut lock = state.write().await;
@@ -548,6 +649,9 @@ impl InMemoryQueueRepository {
             voice_state: lock.voice_state,
             playback_generation: lock.playback_generation,
             vc_generation: lock.vc_generation,
+            owner_user_id: lock.owner_user_id,
+            owner_user_name: lock.owner_user_name.clone(),
+            session_id: lock.session_id.clone(),
             last_error: lock.last_error.clone(),
             player_message_id: lock.player_message_id,
             queue: lock.queue.iter().cloned().collect(),
@@ -746,6 +850,29 @@ impl MediaEngine {
         self.repo.get_playback_state(chat_id).await
     }
 
+    pub async fn set_session_owner(&self, chat_id: i64, user_id: i64, user_name: &str) -> Result<()> {
+        self.repo.set_session_owner(chat_id, user_id, user_name).await
+    }
+
+    pub async fn enqueue_and_play(&self, chat_id: i64, track: Track) -> Result<Option<usize>> {
+        let _ = self.repo.set_session_owner(chat_id, track.requested_by, &track.requested_by_name).await;
+
+        let is_idle = {
+            let state = self.repo.get_or_create(chat_id);
+            let lock = state.read().await;
+            lock.current.is_none() && lock.engine_state != EngineState::Playing && lock.engine_state != EngineState::Loading
+        };
+
+        let pos = self.repo.enqueue(chat_id, track).await?;
+
+        if is_idle {
+            let _ = self.advance_to_next_track(chat_id, TransitionReason::UserAction).await?;
+            Ok(None)
+        } else {
+            Ok(pos)
+        }
+    }
+
     pub async fn play(&self, chat_id: i64, track: &Track) -> Result<()> {
         match self.transport.deliver(chat_id, track).await {
             Ok(_) => {
@@ -776,19 +903,97 @@ impl MediaEngine {
         self.repo.set_paused(chat_id, false).await
     }
 
-    pub async fn skip(&self, chat_id: i64) -> Result<Option<Track>> {
-        let next = self.repo.skip_track(chat_id).await?;
-        if let Some(track) = &next {
-            if let Err(e) = self.transport.deliver(chat_id, track).await {
-                let _ = self.repo.on_voice_disconnected(chat_id).await;
-                return Err(e);
-            }
-            let _ = self.repo.set_voice_state(chat_id, VoiceState::Connected).await;
-        } else {
-            self.transport.stop(chat_id).await?;
-            let _ = self.repo.set_voice_state(chat_id, VoiceState::Disconnected).await;
+    pub async fn advance_to_next_track(
+        &self,
+        chat_id: i64,
+        reason: TransitionReason,
+    ) -> Result<Option<Track>> {
+        let state = self.repo.get_or_create(chat_id);
+        let mut lock = state.write().await;
+
+        if lock.transition_in_progress {
+            info!(chat_id, ?reason, "[TRANSITION] transition already in progress, ignoring duplicate request");
+            return Ok(lock.current.clone());
         }
-        Ok(next)
+
+        lock.transition_in_progress = true;
+        lock.playback_generation += 1;
+        let gen = lock.playback_generation;
+
+        info!(
+            chat_id,
+            ?reason,
+            generation = gen,
+            curr = ?lock.current.as_ref().map(|t| t.title.as_str()),
+            queue_len = lock.queue.len(),
+            "[TRANSITION] starting atomic track transition"
+        );
+
+        if let Some(old_curr) = lock.current.take() {
+            info!(chat_id, title = %old_curr.title, "[TRANSITION] cleaning up completed/skipped track");
+            match lock.loop_mode {
+                LoopMode::Queue => {
+                    lock.queue.push_back(old_curr);
+                }
+                LoopMode::Track if reason == TransitionReason::Eof => {
+                    lock.queue.push_front(old_curr);
+                }
+                _ => {
+                    lock.history.push(old_curr);
+                    if lock.history.len() > HISTORY_LIMIT {
+                        lock.history.remove(0);
+                    }
+                }
+            }
+        }
+
+        let next_track = lock.queue.pop_front();
+        lock.current = next_track.clone();
+        lock.position_secs = 0;
+
+        if let Some(ref t) = next_track {
+            lock.engine_state = EngineState::Loading;
+            info!(chat_id, next = %t.title, remaining_queue = lock.queue.len(), "[TRANSITION] selected next track, state -> LOADING");
+        } else {
+            lock.engine_state = EngineState::Idle;
+            lock.transition_in_progress = false;
+            info!(chat_id, "[TRANSITION] queue empty, state -> IDLE");
+            drop(lock);
+            let _ = self.transport.stop(chat_id).await;
+            return Ok(None);
+        }
+
+        let track_to_deliver = next_track.clone().unwrap();
+        drop(lock);
+
+        match self.transport.deliver(chat_id, &track_to_deliver).await {
+            Ok(_) => {
+                let mut lock = state.write().await;
+                if lock.playback_generation == gen {
+                    lock.engine_state = EngineState::Playing;
+                    lock.voice_state = VoiceState::Connected;
+                    lock.transition_in_progress = false;
+                    info!(chat_id, track = %track_to_deliver.title, "[TRANSITION] delivery success, state -> PLAYING");
+                } else {
+                    info!(chat_id, "[TRANSITION] generation token changed during delivery; discarding state update");
+                }
+                Ok(Some(track_to_deliver))
+            }
+            Err(e) => {
+                warn!(chat_id, error = %e, track = %track_to_deliver.title, "[TRANSITION] delivery failed; advancing to next track recursively");
+                let mut lock = state.write().await;
+                if lock.playback_generation == gen {
+                    lock.transition_in_progress = false;
+                }
+                drop(lock);
+
+                Box::pin(self.advance_to_next_track(chat_id, TransitionReason::Failure)).await
+            }
+        }
+    }
+
+    pub async fn skip(&self, chat_id: i64) -> Result<Option<Track>> {
+        self.advance_to_next_track(chat_id, TransitionReason::Skip).await
     }
 
     pub async fn on_natural_end_with_generation(
@@ -796,42 +1001,22 @@ impl MediaEngine {
         chat_id: i64,
         expected_generation: u64,
     ) -> Result<Option<Track>> {
-        let state = self.repo.get_or_create(chat_id);
-        let mut lock = state.write().await;
-        if lock.playback_generation != expected_generation {
-            info!(
-                chat_id,
-                expected = expected_generation,
-                current = lock.playback_generation,
-                "[PLAYBACK] generation token mismatch; discarding stale EOF callback"
-            );
-            return Ok(lock.current.clone());
-        }
-        if lock.transition_in_progress {
-            info!("[PLAYBACK] transition in progress, skipping natural end execution");
-            return Ok(lock.current.clone());
-        }
-        lock.begin_transition(EngineState::Finished);
-        let next = lock.on_track_end();
-        let final_state = if next.is_some() { EngineState::Playing } else { EngineState::Idle };
-        lock.end_transition(final_state);
-        drop(lock);
-
-        if let Some(track) = &next {
-            self.transport.deliver(chat_id, track).await?;
-        } else {
-            self.transport.stop(chat_id).await?;
-        }
-        Ok(next)
-    }
-
-    pub async fn on_natural_end(&self, chat_id: i64) -> Result<Option<Track>> {
         let gen = {
             let state = self.repo.get_or_create(chat_id);
             let lock = state.read().await;
             lock.playback_generation
         };
-        self.on_natural_end_with_generation(chat_id, gen).await
+        if gen != expected_generation {
+            info!(chat_id, expected = expected_generation, current = gen, "[PLAYBACK] generation token mismatch; discarding stale EOF callback");
+            let state = self.repo.get_or_create(chat_id);
+            let lock = state.read().await;
+            return Ok(lock.current.clone());
+        }
+        self.advance_to_next_track(chat_id, TransitionReason::Eof).await
+    }
+
+    pub async fn on_natural_end(&self, chat_id: i64) -> Result<Option<Track>> {
+        self.advance_to_next_track(chat_id, TransitionReason::Eof).await
     }
 
     pub async fn prev(&self, chat_id: i64) -> Result<Option<Track>> {

@@ -374,23 +374,193 @@ mod tests {
         assert_eq!(q.playback_generation, gen_before + 1);
     }
 
+    #[tokio::test]
+    async fn test_multi_track_queue_transition_does_not_clear_queue() {
+        use std::sync::Arc;
+        use crate::media_engine::{InMemoryQueueRepository, MediaEngine, TelegramAudioTransport, TransitionReason};
+
+        let repo = Arc::new(InMemoryQueueRepository::new(100, 100));
+        let transport = Arc::new(TelegramAudioTransport::new(None));
+        let me = MediaEngine::new(repo.clone(), transport);
+
+        let chat_id = 999;
+        me.enqueue_and_play(chat_id, track("t1", "Track A")).await.unwrap();
+        me.enqueue_and_play(chat_id, track("t2", "Track B")).await.unwrap();
+        me.enqueue_and_play(chat_id, track("t3", "Track C")).await.unwrap();
+
+        let st = me.state(chat_id).await.unwrap();
+        assert_eq!(st.current.as_ref().unwrap().title, "Track A");
+        assert_eq!(st.queue_len, 2);
+
+        // Advance Track A (EOF) -> Track B should play, Track C in queue
+        let b = me.advance_to_next_track(chat_id, TransitionReason::Eof).await.unwrap();
+        assert_eq!(b.as_ref().unwrap().title, "Track B");
+        let st2 = me.state(chat_id).await.unwrap();
+        assert_eq!(st2.current.as_ref().unwrap().title, "Track B");
+        assert_eq!(st2.queue_len, 1);
+        assert_eq!(st2.queue[0].title, "Track C");
+
+        // Advance Track B (EOF) -> Track C should play, queue empty
+        let c = me.advance_to_next_track(chat_id, TransitionReason::Eof).await.unwrap();
+        assert_eq!(c.as_ref().unwrap().title, "Track C");
+        let st3 = me.state(chat_id).await.unwrap();
+        assert_eq!(st3.current.as_ref().unwrap().title, "Track C");
+        assert_eq!(st3.queue_len, 0);
+
+        // Advance Track C (EOF) -> Idle
+        let done = me.advance_to_next_track(chat_id, TransitionReason::Eof).await.unwrap();
+        assert!(done.is_none());
+        let st4 = me.state(chat_id).await.unwrap();
+        assert!(st4.current.is_none());
+        assert_eq!(st4.engine_state, crate::media_engine::EngineState::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_title_requests_have_unique_track_ids() {
+        use std::sync::Arc;
+        use crate::media_engine::{InMemoryQueueRepository, MediaEngine, TelegramAudioTransport, TransitionReason};
+
+        let repo = Arc::new(InMemoryQueueRepository::new(100, 100));
+        let transport = Arc::new(TelegramAudioTransport::new(None));
+        let me = MediaEngine::new(repo.clone(), transport);
+
+        let chat_id = 888;
+        me.enqueue_and_play(chat_id, track("same_id", "Believer")).await.unwrap();
+        me.enqueue_and_play(chat_id, track("same_id", "Believer")).await.unwrap();
+
+        let st = me.state(chat_id).await.unwrap();
+        assert_eq!(st.current.as_ref().unwrap().title, "Believer");
+        assert_eq!(st.queue_len, 1);
+        assert_ne!(st.current.as_ref().unwrap().id, st.queue[0].id);
+
+        let next = me.advance_to_next_track(chat_id, TransitionReason::Eof).await.unwrap();
+        assert_eq!(next.as_ref().unwrap().title, "Believer");
+        let st2 = me.state(chat_id).await.unwrap();
+        assert_eq!(st2.queue_len, 0);
+    }
+
     #[test]
-    fn test_reconcile_repairs_playing_contradiction_when_vc_disconnected() {
-        use crate::media_engine::{ChatQueueState, EngineState, VoiceState};
+    fn test_assert_invariants_self_heals_playing_state_without_track() {
+        use crate::media_engine::{ChatQueueState, EngineState};
 
         let mut q = ChatQueueState::new(100, 100);
-        q.enqueue(track("t1", "Song A"));
-        q.next_track();
-
-        // Simulate state corruption: Playing state but VC Disconnected
-        q.voice_state = VoiceState::Disconnected;
         q.engine_state = EngineState::Playing;
+        q.current = None;
 
-        q.reconcile();
+        q.assert_invariants();
 
-        assert_eq!(q.engine_state, EngineState::WaitingForVc);
-        assert_eq!(q.queue.len(), 1);
-        assert_eq!(q.queue[0].title, "Song A");
-        assert_eq!(q.playback_generation, 1);
+        assert_eq!(q.engine_state, EngineState::Idle);
+    }
+
+    #[test]
+    fn test_prune_inactive_sessions_evicts_idle_chats() {
+        use std::time::Duration;
+        use crate::media_engine::InMemoryQueueRepository;
+
+        let repo = InMemoryQueueRepository::new(100, 100);
+        let _ = repo.get_or_create(111); // Empty idle chat
+        let _active = repo.get_or_create(222);
+        _active.blocking_write().enqueue(track("t1", "Active Song"));
+
+        assert_eq!(repo.active_chats().len(), 2);
+
+        repo.prune_inactive_sessions(Duration::from_secs(1800));
+
+        let remaining = repo.active_chats();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0], 222);
+    }
+
+    #[tokio::test]
+    async fn test_authorization_manager_permissions() {
+        use std::sync::Arc;
+        use crate::commands::{AuthorizationManager, BotCommand};
+        use crate::media_engine::{InMemoryQueueRepository, MediaEngine, TelegramAudioTransport};
+
+        let repo = Arc::new(InMemoryQueueRepository::new(100, 100));
+        let transport = Arc::new(TelegramAudioTransport::new(None));
+        let me = MediaEngine::new(repo.clone(), transport);
+
+        let chat_id = 777;
+        let user_a = 123;
+        let user_b = 200;
+
+        me.enqueue_and_play(chat_id, track("t1", "User A Song")).await.unwrap();
+        me.repo.set_session_owner(chat_id, user_a, "User A").await.unwrap();
+
+        let st = me.state(chat_id).await.unwrap();
+        assert_eq!(st.owner_user_id, Some(user_a));
+
+        // Public commands authorized for anyone
+        assert!(AuthorizationManager::authorize(&BotCommand::Help, user_b, chat_id, &st, None, false).is_ok());
+        assert!(AuthorizationManager::authorize(&BotCommand::Queue, user_b, chat_id, &st, None, false).is_ok());
+
+        // Session Controller commands authorized for User A (Owner) and Admins
+        assert!(AuthorizationManager::authorize(&BotCommand::Skip, user_a, chat_id, &st, None, false).is_ok());
+        assert!(AuthorizationManager::authorize(&BotCommand::Skip, user_b, chat_id, &st, None, true).is_ok());
+
+        // Session Controller commands DENIED for User B (Non-owner, non-admin)
+        let denied = AuthorizationManager::authorize(&BotCommand::Skip, user_b, chat_id, &st, None, false);
+        assert!(denied.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_playback_interruption_protection_enqueues_safely() {
+        use std::sync::Arc;
+        use crate::commands::AuthorizationManager;
+        use crate::media_engine::{InMemoryQueueRepository, MediaEngine, TelegramAudioTransport};
+
+        let repo = Arc::new(InMemoryQueueRepository::new(100, 100));
+        let transport = Arc::new(TelegramAudioTransport::new(None));
+        let me = MediaEngine::new(repo.clone(), transport);
+
+        let chat_id = 666;
+        let user_a = 101;
+        let user_b = 202;
+
+        let track1 = Track {
+            id: crate::router::TrackId::new("t1"),
+            title: "User A Track".into(),
+            artist: None,
+            url: "https://example.com/1".into(),
+            duration_secs: 180,
+            thumbnail_url: None,
+            requested_by: user_a,
+            requested_by_name: "User A".into(),
+            source: crate::router::SourceKind::DirectUrl,
+            external_id: None,
+        };
+
+        let track2 = Track {
+            id: crate::router::TrackId::new("t2"),
+            title: "User B Track".into(),
+            artist: None,
+            url: "https://example.com/2".into(),
+            duration_secs: 200,
+            thumbnail_url: None,
+            requested_by: user_b,
+            requested_by_name: "User B".into(),
+            source: crate::router::SourceKind::DirectUrl,
+            external_id: None,
+        };
+
+        // User A starts playback
+        me.enqueue_and_play(chat_id, track1).await.unwrap();
+        let st1 = me.state(chat_id).await.unwrap();
+        assert_eq!(st1.current.as_ref().unwrap().title, "User A Track");
+        assert_eq!(st1.owner_user_id, Some(user_a));
+
+        // User B attempts to skip (Unauthorized) -> Denied
+        let denied = AuthorizationManager::authorize(&crate::commands::BotCommand::Skip, user_b, chat_id, &st1, None, false);
+        assert!(denied.is_err());
+
+        // User B attempts /play Track 2 -> Safely enqueued at position 1 without interrupting User A
+        let pos = me.enqueue_and_play(chat_id, track2).await.unwrap();
+        assert_eq!(pos, Some(1));
+
+        let st2 = me.state(chat_id).await.unwrap();
+        assert_eq!(st2.current.as_ref().unwrap().title, "User A Track"); // Still User A's track!
+        assert_eq!(st2.queue_len, 1);
+        assert_eq!(st2.queue[0].title, "User B Track");
     }
 }

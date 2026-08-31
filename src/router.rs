@@ -392,10 +392,11 @@ impl TrackResolver for MusicRouter {
         let res = self.execute_search(query, requested_by, requested_by_name).await;
 
         if let Ok(ref track) = res {
-            self.search_cache.insert(key.clone(), (Instant::now(), track.clone()));
-            if self.search_cache.len() > 1000 {
-                self.search_cache.clear();
+            if self.search_cache.len() > 500 {
+                let ttl = self.search_cache_ttl;
+                self.search_cache.retain(|_, (inserted, _)| inserted.elapsed() < ttl);
             }
+            self.search_cache.insert(key.clone(), (Instant::now(), track.clone()));
         }
 
         self.in_flight.remove(&key);
@@ -420,6 +421,10 @@ impl TrackResolver for MusicRouter {
         let res = route.adapter.resolve(track).await;
         self.note_outcome(route.adapter.name(), &res);
         if let Ok(audio) = &res {
+            if self.resolve_cache.len() > 500 {
+                let ttl = self.resolve_cache_ttl;
+                self.resolve_cache.retain(|_, (inserted, _)| inserted.elapsed() < ttl);
+            }
             self.resolve_cache
                 .insert(track.id.0.clone(), (Instant::now(), audio.clone()));
         }
