@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Heroku post-compile hook: install yt-dlp for YouTube audio extraction.
+# Runs after the Rust buildpack compiles the binary.
+set -euo pipefail
+
+if command -v pip3 &>/dev/null; then
+  echo "Installing yt-dlp via pip3..."
+  pip3 install --user --no-cache-dir yt-dlp
+  # Ensure ~/.local/bin is on PATH for Heroku dynos
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
+  echo "yt-dlp installed: $(~/.local/bin/yt-dlp --version 2>/dev/null || echo 'unknown')"
+elif command -v pip &>/dev/null; then
+  echo "Installing yt-dlp via pip..."
+  pip install --user --no-cache-dir yt-dlp
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
+  echo "yt-dlp installed: $(~/.local/bin/yt-dlp --version 2>/dev/null || echo 'unknown')"
+else
+  echo "WARNING: pip not found, skipping yt-dlp installation"
+fi

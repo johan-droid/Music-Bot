@@ -1,65 +1,142 @@
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::{info, warn};
+use tracing_subscriber::{fmt, EnvFilter};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub fn init_logger() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new("info,brook_music_bot=debug,h2=warn,rustls=warn,reqwest=warn,hyper=warn,sqlx=warn")
+    });
+
+    fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_line_number(true)
+        .with_file(true)
+        .pretty()
+        .init();
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub telegram_enabled: bool,
-    pub api_id: Option<i32>,
-    pub api_hash: Option<String>,
     pub bot_token: Option<String>,
-    pub bot_id: Option<i64>,
-    pub bot_username: Option<String>,
-    pub bot_username_alt: Option<String>,
-    pub admin_password: Option<String>,
     pub owner_id: Option<i64>,
+    pub admin_password: Option<String>,
 
-    pub session_string_1: Option<String>,
-    pub session_string_2: Option<String>,
-    pub session_string_3: Option<String>,
-    pub session_string_4: Option<String>,
-    pub session_string_5: Option<String>,
-
-    pub session_file_path_1: Option<String>,
-    pub session_file_path_2: Option<String>,
-    pub session_file_path_3: Option<String>,
-    pub session_file_path_4: Option<String>,
-    pub session_file_path_5: Option<String>,
-
-    pub mongo_uri: String,
-    pub sqlite_cache_path: String,
-    pub sqlite_db_path: String,
-    pub neon_database_url: Option<String>,
-    pub genius_token: Option<String>,
-    pub log_group_id: Option<i64>,
+    pub port: Option<u16>,
     pub metrics_http_enabled: bool,
     pub metrics_http_token: Option<String>,
     pub metrics_prometheus_enabled: bool,
-    pub webhook_url: Option<String>,
-    pub webhook_path: String,
-    pub port: Option<u16>,
+
+    pub music_microservice_url: Option<String>,
+
+    pub spotify_client_id: Option<String>,
+    pub spotify_client_secret: Option<String>,
+    pub soundcloud_client_id: Option<String>,
+    pub invidious_instances: Vec<String>,
+    pub active_invidious_instances: Vec<String>,
+    pub piped_instances: Vec<String>,
+    pub active_piped_instances: Vec<String>,
+    pub resolver_cache_ttl_secs: u64,
+    pub stream_cache_ttl_secs: u64,
+    pub youtube_enabled: bool,
+    pub yt_dlp_enabled: bool,
+    pub yt_dlp_binary: String,
+    pub yt_dlp_timeout_secs: u64,
+
+    pub max_direct_stream_mb: u64,
+    pub allowed_direct_hosts: Vec<String>,
 
     pub max_queue_size: usize,
     pub default_volume: u32,
     pub command_cooldown: u64,
-    pub audio_quality: String,
-    pub audio_bitrate: u32,
-    pub audio_loudnorm: bool,
-    pub legal_sources_first: bool,
-    pub music_microservice_url: Option<String>,
-    pub music_provider_priority: String,
-    pub np_autoclean_delay: u64,
-    pub search_msg_autoclean: u64,
-    pub np_update_interval: u64,
-    pub vc_play_timeout: u64,
-    pub auto_start_vc: bool,
-    pub auto_start_vc_title: String,
+    pub max_concurrent_resolutions: usize,
+
+    pub tg_api_id: Option<i32>,
+    pub tg_api_hash: Option<String>,
+    pub assistant_session: String,
+    pub assistant_session_string: Option<String>,
+
+    pub nvidia_nim_api_key: Option<String>,
+    pub nvidia_nim_base_url: String,
+    pub nvidia_nim_model: String,
+
+    pub database_url: Option<String>,
+    pub mongodb_uri: Option<String>,
+    pub heroku_app_name: Option<String>,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
+            .field("owner_id", &self.owner_id)
+            .field(
+                "admin_password",
+                &self.admin_password.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("port", &self.port)
+            .field("metrics_http_enabled", &self.metrics_http_enabled)
+            .field(
+                "metrics_http_token",
+                &self.metrics_http_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("metrics_prometheus_enabled", &self.metrics_prometheus_enabled)
+            .field("music_microservice_url", &self.music_microservice_url)
+            .field(
+                "spotify_client_id",
+                &self.spotify_client_id.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "spotify_client_secret",
+                &self.spotify_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "soundcloud_client_id",
+                &self.soundcloud_client_id.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("invidious_instances", &self.invidious_instances)
+            .field("active_invidious_instances", &self.active_invidious_instances)
+            .field("piped_instances", &self.piped_instances)
+            .field("active_piped_instances", &self.active_piped_instances)
+            .field("resolver_cache_ttl_secs", &self.resolver_cache_ttl_secs)
+            .field("stream_cache_ttl_secs", &self.stream_cache_ttl_secs)
+            .field("youtube_enabled", &self.youtube_enabled)
+            .field("yt_dlp_enabled", &self.yt_dlp_enabled)
+            .field("yt_dlp_binary", &self.yt_dlp_binary)
+            .field("yt_dlp_timeout_secs", &self.yt_dlp_timeout_secs)
+            .field("max_direct_stream_mb", &self.max_direct_stream_mb)
+            .field("allowed_direct_hosts", &self.allowed_direct_hosts)
+            .field("max_queue_size", &self.max_queue_size)
+            .field("default_volume", &self.default_volume)
+            .field("command_cooldown", &self.command_cooldown)
+            .field("max_concurrent_resolutions", &self.max_concurrent_resolutions)
+            .field("tg_api_id", &self.tg_api_id)
+            .field(
+                "tg_api_hash",
+                &self.tg_api_hash.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("assistant_session", &self.assistant_session)
+            .field(
+                "assistant_session_string",
+                &self.assistant_session_string.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "nvidia_nim_api_key",
+                &self.nvidia_nim_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("nvidia_nim_base_url", &self.nvidia_nim_base_url)
+            .field("nvidia_nim_model", &self.nvidia_nim_model)
+            .finish()
+    }
 }
 
 impl Config {
-    pub fn load() -> Self {
-        // Try loading env files in order
+    pub async fn load() -> Self {
         let env_candidates = vec![
             PathBuf::from("../.env.local"),
             PathBuf::from("./.env.local"),
@@ -76,101 +153,212 @@ impl Config {
             }
         }
 
-        let api_id = env::var("API_ID")
-            .or_else(|_| env::var("TELEGRAM_API_ID"))
-            .or_else(|_| env::var("TG_API_ID"))
-            .ok()
-            .and_then(|v| v.parse::<i32>().ok());
-
-        let api_hash = env::var("API_HASH")
-            .or_else(|_| env::var("TELEGRAM_API_HASH"))
-            .or_else(|_| env::var("TG_API_HASH"))
-            .ok()
-            .filter(|v| !v.contains("your_"));
-
         let bot_token = env::var("BOT_TOKEN")
             .or_else(|_| env::var("TELEGRAM_BOT_TOKEN"))
             .or_else(|_| env::var("TG_BOT_TOKEN"))
             .ok()
             .filter(|v| !v.contains("your_"));
 
-        let admin_password = env::var("ADMIN_PASSWORD").ok().filter(|v| !v.is_empty());
         let owner_id = env::var("OWNER_ID").ok().and_then(|v| v.parse::<i64>().ok());
-        let log_group_id = env::var("LOG_GROUP_ID").ok().and_then(|v| v.parse::<i64>().ok());
-
+        let admin_password = env::var("ADMIN_PASSWORD").ok().filter(|v| !v.is_empty());
         let port = env::var("PORT").ok().and_then(|v| v.parse::<u16>().ok());
 
-        let config = Self {
-            telegram_enabled: api_id.is_some() && api_hash.is_some() && bot_token.is_some(),
-            api_id,
-            api_hash,
+        let metrics_http_enabled = env::var("METRICS_HTTP_ENABLED").unwrap_or_default().parse().unwrap_or(false);
+        let metrics_http_token = env::var("METRICS_HTTP_TOKEN").ok().filter(|v| !v.is_empty());
+        let metrics_prometheus_enabled = env::var("METRICS_PROMETHEUS_ENABLED").unwrap_or_default().parse().unwrap_or(false);
+
+        let music_microservice_url = env::var("MUSIC_MICROSERVICE_URL")
+            .ok()
+            .filter(|v| {
+                !v.is_empty()
+                    && !v.contains("your_")
+                    && !v.contains("example.com")
+                    && !v.contains("replace")
+            });
+
+        let spotify_client_id = env::var("SPOTIFY_CLIENT_ID").ok().filter(|v| !v.is_empty() && !v.contains("your_"));
+        let spotify_client_secret = env::var("SPOTIFY_CLIENT_SECRET").ok().filter(|v| !v.is_empty() && !v.contains("your_"));
+        let soundcloud_client_id = env::var("SOUNDCLOUD_CLIENT_ID").ok().filter(|v| !v.is_empty() && !v.contains("your_"));
+
+        let invidious_instances = env::var("INVIDIOUS_INSTANCES")
+            .unwrap_or_else(|_| "invidious.flokinet.to,invidious.snopyta.org,invidious.bkp.snopyta.org,invidious.privacydev.net,yt.artemislena.eu,invidious.lunar.icu,invidious.privacydev.net,inv.vern.cc,invidious.kavin.rocks,invidious.projectsegfau.lt,invidious.nerdvpn.de,vid.puffyan.us,inv.nadeko.net,invidious.f5.si,iv.ggtyler.dev".to_string())
+            .split(',')
+            .map(|s| s.trim().trim_start_matches("https://").to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let piped_instances = env::var("PIPED_INSTANCES")
+            .unwrap_or_else(|_| "piped.kavin.rocks,piped.privacydev.net,piped.moomoo.me,piped.esmailelbob.xyz,pipedapi.kavin.rocks,pipedapi.tokhmi.xyz,piped-api.garudalinux.org,pipedapi.reallyaweso.me,piped.moomoo.me,piped.privacydev.net,piped-api.lunar.icu,piped-api.projectsegfau.lt,piped-api.privacydev.net,piped-api.vern.cc".to_string())
+            .split(',')
+            .map(|s| s.trim().trim_start_matches("https://").to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let resolver_cache_ttl_secs = env::var("RESOLVER_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+        let stream_cache_ttl_secs = env::var("RESOLVER_STREAM_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(3600);
+        let youtube_enabled = env::var("YOUTUBE_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true);
+        let yt_dlp_enabled = env::var("YT_DLP_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true);
+        let yt_dlp_binary = env::var("YT_DLP_BINARY").unwrap_or_else(|_| "yt-dlp".to_string());
+        let yt_dlp_timeout_secs = env::var("YT_DLP_TIMEOUT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+        let max_direct_stream_mb = env::var("MAX_DIRECT_STREAM_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+
+        let allowed_direct_hosts = env::var("ALLOWED_DIRECT_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let max_queue_size = env::var("MAX_QUEUE_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+        let default_volume = env::var("DEFAULT_VOLUME").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+        let command_cooldown = env::var("COMMAND_COOLDOWN").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let max_concurrent_resolutions = env::var("MAX_CONCURRENT_RESOLUTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
+
+        let tg_api_id = env::var("TG_API_ID").ok().and_then(|v| v.parse::<i32>().ok());
+        let tg_api_hash = env::var("TG_API_HASH").ok().filter(|v| !v.is_empty() && !v.contains("your_"));
+        let assistant_session = env::var("ASSISTANT_SESSION").unwrap_or_else(|_| "assistant.session".to_string());
+        let assistant_session_string = env::var("ASSISTANT_SESSION_STRING").ok().filter(|v| !v.is_empty());
+
+        let nvidia_nim_api_key = env::var("NVIDIA_NIM_API_KEY")
+            .or_else(|_| env::var("NVIDIA_API_KEY"))
+            .ok()
+            .filter(|v| !v.is_empty() && !v.contains("your_"));
+        let nvidia_nim_base_url = env::var("NVIDIA_NIM_BASE_URL")
+            .unwrap_or_else(|_| "https://integrate.api.nvidia.com/v1".to_string());
+        let nvidia_nim_model = env::var("NVIDIA_NIM_MODEL")
+            .unwrap_or_else(|_| "meta/llama-3.1-70b-instruct".to_string());
+
+        let database_url = env::var("DATABASE_URL").ok().filter(|v| !v.is_empty());
+        let mongodb_uri = env::var("MONGODB_URI").ok().filter(|v| !v.is_empty());
+        let heroku_app_name = env::var("HEROKU_APP_NAME").ok().filter(|v| !v.is_empty());
+
+        let mut config = Self {
             bot_token,
-            bot_id: env::var("BOT_ID").ok().and_then(|v| v.parse::<i64>().ok()),
-            bot_username: env::var("BOT_USERNAME").ok(),
-            bot_username_alt: env::var("BOT_USERNAME_ALT").ok(),
-            admin_password,
             owner_id,
-
-            session_string_1: env::var("SESSION_STRING_1").ok().filter(|v| !v.is_empty()),
-            session_string_2: env::var("SESSION_STRING_2").ok().filter(|v| !v.is_empty()),
-            session_string_3: env::var("SESSION_STRING_3").ok().filter(|v| !v.is_empty()),
-            session_string_4: env::var("SESSION_STRING_4").ok().filter(|v| !v.is_empty()),
-            session_string_5: env::var("SESSION_STRING_5").ok().filter(|v| !v.is_empty()),
-
-            session_file_path_1: env::var("SESSION_FILE_PATH_1").ok(),
-            session_file_path_2: env::var("SESSION_FILE_PATH_2").ok(),
-            session_file_path_3: env::var("SESSION_FILE_PATH_3").ok(),
-            session_file_path_4: env::var("SESSION_FILE_PATH_4").ok(),
-            session_file_path_5: env::var("SESSION_FILE_PATH_5").ok(),
-
-            mongo_uri: env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://mongo:27017/musicbot".into()),
-            sqlite_cache_path: env::var("SQLITE_CACHE_PATH").unwrap_or_else(|_| "./data/cache.db".into()),
-            sqlite_db_path: env::var("SQLITE_DB_PATH").unwrap_or_else(|_| "./data/database.db".into()),
-            neon_database_url: env::var("NEON_DATABASE_URL").ok().filter(|v| !v.is_empty()),
-            genius_token: env::var("GENIUS_TOKEN").ok(),
-            log_group_id,
-            metrics_http_enabled: env::var("METRICS_HTTP_ENABLED").unwrap_or_default().parse().unwrap_or(false),
-            metrics_http_token: env::var("METRICS_HTTP_TOKEN").ok(),
-            metrics_prometheus_enabled: env::var("METRICS_PROMETHEUS_ENABLED").unwrap_or_default().parse().unwrap_or(false),
-            webhook_url: env::var("WEBHOOK_URL").ok(),
-            webhook_path: env::var("WEBHOOK_PATH").unwrap_or_else(|_| "/webhook".into()),
+            admin_password,
             port,
-
-            max_queue_size: env::var("MAX_QUEUE_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(100),
-            default_volume: env::var("DEFAULT_VOLUME").ok().and_then(|v| v.parse().ok()).unwrap_or(100),
-            command_cooldown: env::var("COMMAND_COOLDOWN").ok().and_then(|v| v.parse().ok()).unwrap_or(3),
-            audio_quality: env::var("AUDIO_QUALITY").unwrap_or_else(|_| "high".into()),
-            audio_bitrate: env::var("AUDIO_BITRATE").ok().and_then(|v| v.parse().ok()).unwrap_or(192),
-            audio_loudnorm: env::var("AUDIO_LOUDNORM").unwrap_or_default().parse().unwrap_or(true),
-            legal_sources_first: env::var("LEGAL_SOURCES_FIRST").unwrap_or_default().parse().unwrap_or(true),
-            music_microservice_url: env::var("MUSIC_MICROSERVICE_URL").ok().filter(|v| !v.is_empty()),
-            music_provider_priority: env::var("MUSIC_PROVIDER_PRIORITY").unwrap_or_else(|_| "youtube,soundcloud,apple_music".into()),
-            np_autoclean_delay: env::var("NP_AUTOCLEAN_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
-            search_msg_autoclean: env::var("SEARCH_MSG_AUTOCLEAN").ok().and_then(|v| v.parse().ok()).unwrap_or(8),
-            np_update_interval: env::var("NP_UPDATE_INTERVAL").ok().and_then(|v| v.parse().ok()).unwrap_or(3),
-            vc_play_timeout: env::var("VC_PLAY_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(20),
-            auto_start_vc: env::var("AUTO_START_VC").unwrap_or_default().parse().unwrap_or(true),
-            auto_start_vc_title: env::var("AUTO_START_VC_TITLE").unwrap_or_else(|_| "Music Bot Live".into()),
+            metrics_http_enabled,
+            metrics_http_token,
+            metrics_prometheus_enabled,
+            music_microservice_url,
+            spotify_client_id,
+            spotify_client_secret,
+            soundcloud_client_id,
+            invidious_instances,
+            active_invidious_instances: Vec::new(),
+            piped_instances,
+            active_piped_instances: Vec::new(),
+            resolver_cache_ttl_secs,
+            stream_cache_ttl_secs,
+            youtube_enabled,
+            yt_dlp_enabled,
+            yt_dlp_binary,
+            yt_dlp_timeout_secs,
+            max_direct_stream_mb,
+            allowed_direct_hosts,
+            max_queue_size,
+            default_volume,
+            command_cooldown,
+            max_concurrent_resolutions,
+            tg_api_id,
+            tg_api_hash,
+            assistant_session,
+            assistant_session_string,
+            nvidia_nim_api_key,
+            nvidia_nim_base_url,
+            nvidia_nim_model,
+            database_url,
+            mongodb_uri,
+            heroku_app_name,
         };
 
-        if !config.telegram_enabled {
-            warn!("Telegram credentials missing or incomplete (API_ID, API_HASH, BOT_TOKEN).");
-        }
-
+        config.check_instances().await;
         config
     }
 
-    pub fn session_strings(&self) -> Vec<String> {
-        [
-            &self.session_string_1,
-            &self.session_string_2,
-            &self.session_string_3,
-            &self.session_string_4,
-            &self.session_string_5,
-        ]
-        .iter()
-        .filter_map(|s| s.as_ref())
-        .cloned()
-        .collect()
+    async fn check_instances(&mut self) {
+        let client = reqwest::Client::new();
+        let timeout = Duration::from_secs(5);
+        let max_retries = 3;
+        let retry_delay = Duration::from_secs(1);
+
+        let mut handles = Vec::with_capacity(self.invidious_instances.len() + self.piped_instances.len());
+        for instance in &self.invidious_instances {
+            let client = client.clone();
+            let instance = instance.clone();
+            handles.push(tokio::spawn(async move {
+                let mut retries = 0;
+                while retries < max_retries {
+                    let ping_url = format!("https://{}/api/v1/ping", instance);
+                    let search_url = format!("https://{}/api/v1/search?q=test&type=video", instance);
+                    for url in &[ping_url, search_url] {
+                        match client.get(url).timeout(timeout).send().await {
+                            Ok(resp) if resp.status().is_success() => return Some(instance.clone()),
+                            Ok(_) => {
+                                retries += 1;
+                                tokio::time::sleep(retry_delay).await;
+                                continue;
+                            }
+                            Err(_) => {
+                                retries += 1;
+                                tokio::time::sleep(retry_delay).await;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                None
+            }));
+        }
+        for instance in &self.piped_instances {
+            let client = client.clone();
+            let instance = instance.clone();
+            handles.push(tokio::spawn(async move {
+                let mut retries = 0;
+                while retries < max_retries {
+                    let url = format!("https://{}/api/v1/search?q=test", instance);
+                    match client.get(&url).timeout(timeout).send().await {
+                        Ok(resp) if resp.status().is_success() => return Some(instance.clone()),
+                        Ok(_) => {
+                            retries += 1;
+                            tokio::time::sleep(retry_delay).await;
+                            continue;
+                        }
+                        Err(_) => {
+                            retries += 1;
+                            tokio::time::sleep(retry_delay).await;
+                            continue;
+                        }
+                    }
+                }
+                None
+            }));
+        }
+
+        let mut active_invidious = Vec::new();
+        let mut active_piped = Vec::new();
+        for (idx, (name, result)) in self
+            .invidious_instances
+            .iter()
+            .chain(self.piped_instances.iter())
+            .zip(handles)
+            .enumerate()
+        {
+            if let Some(found) = result.await.unwrap_or(None) {
+                if idx < self.invidious_instances.len() {
+                    active_invidious.push(found.clone());
+                    info!("✅ Invidious instance is healthy: {}", found);
+                } else {
+                    active_piped.push(found.clone());
+                    info!("✅ Piped instance is healthy: {}", found);
+                }
+            } else if idx < self.invidious_instances.len() {
+                warn!("❌ Invidious instance failed after retries: {}", name);
+            } else {
+                warn!("❌ Piped instance unavailable after retries: {}", name);
+            }
+        }
+        self.active_invidious_instances = active_invidious;
+        self.active_piped_instances = active_piped;
     }
 }

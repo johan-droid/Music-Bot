@@ -1,10 +1,9 @@
 # Secrets, Environment Variables & Credentials
 .env
+.env.local
 .env.*
 !.env.example
 !.env.sample
-app/.env.local
-backend/.env.local
 *.pem
 *.key
 *.crt
@@ -12,12 +11,10 @@ backend/.env.local
 *.p12
 cookies.txt
 *.cookies
-youtube-wrapper/cookies.txt
-/vc_code.txt
 
-# Telegram / Pyrogram Sessions & State
-sessions/
-backend/sessions/
+# Telegram / ferogram assistant sessions & state
+assistant.session
+assistant.session-journal
 *.session
 *.session-journal
 *.session-val
@@ -25,7 +22,6 @@ backend/sessions/
 
 # Databases & Data Storage
 data/
-backend/data/
 *.db
 *.db-*
 *.sqlite
@@ -35,11 +31,8 @@ backend/data/
 
 # Media Downloads, Audio Files & Temp Directories
 downloads/
-backend/downloads/
 temp/
-backend/temp/
 cache/
-backend/cache/
 *.mp3
 *.m4a
 *.opus
@@ -49,39 +42,11 @@ backend/cache/
 *.aac
 *.raw
 
-# Python Compiled & Runtime Artifacts
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# Virtual Environments
-venv/
-.venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-
 # Build, Packaging & Distribution
 target/
 build/
 dist/
-*.egg-info/
-pip-wheel-metadata/
-*.egg
 *.rs.bk
-
-# Test, Coverage & Linters
-.coverage
-.coverage.*
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.pytype/
-htmlcov/
-*.cover
 
 # IDEs, Code Editors & AI Tooling
 .vscode/
@@ -99,7 +64,6 @@ htmlcov/
 
 # Logs & Temporary Files
 logs/
-backend/logs/
 *.log
 *.log.*
 *.bak
@@ -119,4 +83,4 @@ desktop.ini
 
 # Miscellaneous
 install.cmd
-
+.pytest_cache/

@@ -1,0 +1,1 @@
+web: target/release/brook-music-bot

@@ -1,0 +1,106 @@
+{
+  "name": "Brook Music Bot",
+  "description": "Soul King Telegram music bot in pure Rust with multi-platform streaming (YouTube, Spotify, Apple Music, SoundCloud, Direct Links) via IP-ban-safe public APIs.",
+  "repository": "https://github.com/johan-droid/Brock-Music-Bot-ACN",
+  "keywords": ["telegram", "music", "rust", "tokio", "teloxide", "axum"],
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Telegram bot token from @BotFather",
+      "required": true
+    },
+    "OWNER_ID": {
+      "description": "Telegram numeric user ID of the bot owner",
+      "required": false
+    },
+    "ADMIN_PASSWORD": {
+      "description": "Password for the /admin HTTP dashboard (Basic auth)",
+      "required": false
+    },
+    "INVIDIOUS_INSTANCES": {
+      "description": "Comma-separated public Invidious hosts for YouTube (rotated to avoid IP bans)",
+      "required": false,
+      "value": "invidious.nerdvpn.de,vid.puffyan.us,inv.nadeko.net,invidious.f5.si,iv.ggtyler.dev"
+    },
+    "PIPED_INSTANCES": {
+      "description": "Comma-separated public Piped API hosts for YouTube fallback",
+      "required": false,
+      "value": "pipedapi.kavin.rocks,pipedapi.tokhmi.xyz,piped-api.garudalinux.org,pipedapi.reallyaweso.me"
+    },
+    "SPOTIFY_CLIENT_ID": {
+      "description": "Spotify app client ID (https://developer.spotify.com/dashboard) - enables Spotify search/links",
+      "required": false
+    },
+    "SPOTIFY_CLIENT_SECRET": {
+      "description": "Spotify app client secret",
+      "required": false
+    },
+    "SOUNDCLOUD_CLIENT_ID": {
+      "description": "SoundCloud API client_id - enables SoundCloud search/links",
+      "required": false
+    },
+    "RESOLVER_CACHE_TTL_SECS": {
+      "description": "TTL (seconds) for in-memory search-result caching to reduce upstream requests",
+      "required": false,
+      "value": "300"
+    },
+    "MAX_DIRECT_STREAM_MB": {
+      "description": "Max size (MB) for direct audio streams to prevent unbounded downloads",
+      "required": false,
+      "value": "100"
+    },
+    "ALLOWED_DIRECT_HOSTS": {
+      "description": "Comma-separated allowed redirect hosts for direct links (optional)",
+      "required": false
+    },
+    "YOUTUBE_ENABLED": {
+      "description": "Set false to disable YouTube search (Invidious/Piped)",
+      "required": false,
+      "value": "true"
+    },
+    "YT_DLP_ENABLED": {
+      "description": "Use yt-dlp subprocess for YouTube audio extraction (requires python3 + pip buildpack)",
+      "required": false,
+      "value": "true"
+    },
+    "YT_DLP_BINARY": {
+      "description": "Path/name of the yt-dlp binary",
+      "required": false,
+      "value": "yt-dlp"
+    },
+    "YT_DLP_TIMEOUT_SECS": {
+      "description": "Max seconds allowed for a yt-dlp extraction attempt",
+      "required": false,
+      "value": "20"
+    },
+    "METRICS_HTTP_ENABLED": {
+      "description": "Enable the /metrics HTTP endpoint",
+      "required": false,
+      "value": "false"
+    },
+    "METRICS_HTTP_TOKEN": {
+      "description": "Bearer token protecting /metrics",
+      "required": false
+    },
+    "MAX_CONCURRENT_RESOLUTIONS": {
+      "description": "Max concurrent upstream track resolutions (rate-limit / IP-ban protection)",
+      "required": false,
+      "value": "4"
+    },
+    "TG_API_ID": {
+      "description": "Telegram API ID from https://my.telegram.org/api - required for voice chat streaming (assistant account)",
+      "required": false
+    },
+    "TG_API_HASH": {
+      "description": "Telegram API hash from https://my.telegram.org/api - required for voice chat streaming (assistant account)",
+      "required": false
+    },
+    "ASSISTANT_SESSION_STRING": {
+      "description": "Session string for the assistant user account (run `brook-music-bot --export-session` locally to generate). Enables real audio in voice chats.",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    { "url": "https://github.com/heroku-community/apt" },
+    { "url": "https://github.com/emk/heroku-buildpack-rust" }
+  ]
+}
