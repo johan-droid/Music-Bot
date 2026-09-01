@@ -90,7 +90,7 @@ async fn index_handler() -> Json<serde_json::Value> {
 async fn brook_image_handler() -> impl IntoResponse {
     (
         [("Content-Type", "image/png"), ("Cache-Control", "public, max-age=86400")],
-        include_bytes!("../static/brook.png").as_slice(),
+        include_bytes!("../assets/brook.png").as_slice(),
     )
 }
 
@@ -325,7 +325,7 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             tick_counter += 1;
-            if tick_counter % 60 == 0 {
+            if tick_counter.is_multiple_of(60) {
                 me_playback_ticker.repo.prune_inactive_sessions(Duration::from_secs(1800));
             }
             let active_chats = me_playback_ticker.repo.active_chats();

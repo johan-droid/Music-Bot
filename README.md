@@ -24,17 +24,18 @@ This repository is **100% Pure Hardcore Rust** (Rust 2021 Edition) powered by To
 - **Sub-Second InnerTube Player Resolution**: InnerTube `ANDROID` (`19.05.36`) and `TVHTML5` player endpoints resolve stream audio in **~100 milliseconds** (down from 6.5s).
 - **Persistence Layer (`DbRepository`)**: Production repository abstraction supporting **MongoDB Atlas**, **Neon PostgreSQL**, or SQLite.
 - **Heroku Ready**: Includes `Procfile`, `runtime.txt`, SIGTERM graceful shutdown handlers, and environment config parser.
-- **100% Test Coverage Verified**: 40 unit & integration tests passing cleanly in 0.03 seconds.
+- **100% Test Coverage Verified**: 48 unit & integration tests passing cleanly in 0.03 seconds.
 
 ---
 
 ## 📚 Complete Documentation Suite
 
-All detailed guides and technical specifications are organized in the [`docs/`](docs/README.md) directory:
+All detailed guides and technical specifications are organized in the `docs/` directory:
 
+- 📖 **[Beginner's User & Command Guide](docs/USER_GUIDE.md)**: Non-technical complete guide with copy-paste command examples, group setup, permissions, and FAQs.
 - 🏗️ **[Architecture & Design System](docs/ARCHITECTURE.md)**: System topology, zero-download guarantees, memory-first state machine, and state lock guard.
-- 🔧 **[Technical Reference](docs/TECHNICAL.md)**: Consolidated 9-module codebase breakdown, Rust dependencies, and technology stack.
-- 🔌 **[REST API Reference](docs/API.md)**: HTTP monitoring endpoints (`/health` and `/stats`).
+- 🔧 **[Technical Reference](docs/TECHNICAL.md)**: Consolidated 10-module codebase breakdown, Rust dependencies, and technology stack.
+- 🔌 **[REST API Reference](docs/API.md)**: Full REST API specification (`/health`, `/stats`, `/stream`, `/api/state`, `/api/action`).
 - ☁️ **[Heroku & Database Deployment Guide](docs/DEPLOYMENT.md)**: Step-by-step deployment guide with MongoDB Atlas or Neon PostgreSQL setup.
 
 ---

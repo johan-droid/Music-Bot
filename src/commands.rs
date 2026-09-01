@@ -427,6 +427,7 @@ pub enum BotCommand {
     PlayerDebug,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_command(
     bot: Bot,
     msg: Message,

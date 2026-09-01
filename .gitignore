@@ -85,4 +85,4 @@ desktop.ini
 install.cmd
 .pytest_cache/
 *.html
-static/*.html
+assets/*.html

@@ -25,7 +25,6 @@ RUN cargo build --release --locked
 # Remove dummy and copy real source
 RUN rm -rf src
 COPY src ./src
-COPY config ./config
 # Build actual binary
 RUN cargo build --release --locked
 
@@ -53,8 +52,7 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/target/release/brook-music-bot /app/brook-music-bot
 
-# Config directory (optional, env-driven config preferred)
-COPY config /app/config
+
 
 # Non-root user for security
 RUN useradd -r -u 1001 -s /sbin/nologin appuser && chown -R appuser:appuser /app

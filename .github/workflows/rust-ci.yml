@@ -1,4 +1,4 @@
-name: CI
+name: Rust CI
 
 on:
   push:
@@ -24,4 +24,3 @@ jobs:
 
     - name: Run unit & integration tests
       run: cargo test --release -- --nocapture
-

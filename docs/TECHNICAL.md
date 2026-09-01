@@ -1,10 +1,10 @@
 # Brock Music Bot — Technical Reference
 
-## 1. Modular Codebase Layout (9 Core Modules)
+## 1. Modular Codebase Layout (10 Core Modules)
 
 ```
 src/
-├── main.rs         - Entry point, Axum HTTP server (/health, /stats), Teloxide dispatcher, SIGTERM handler
+├── main.rs         - Entry point, Axum HTTP server, Teloxide dispatcher, SIGTERM handler
 ├── config.rs       - Environment configuration (Config), tracing logger, instance health checks
 ├── error.rs        - Unified BotError enum & Result<T> alias
 ├── ai.rs           - Intelligence Layer 1: AiReceiver (NVIDIA NIM LLM intent interpretation & local rule fallback)
@@ -13,7 +13,7 @@ src/
 ├── media_engine.rs - MediaEngine, ChatQueueState, EngineState machine, Direct WebRTC PlaybackTransport
 ├── db.rs           - DbRepository trait (MemoryFirstDbRepository for MongoDB Atlas / Neon PostgreSQL)
 ├── commands.rs     - Telegram bot commands (/play, /vplay, /skip, /stop, /queue, /pause, /resume, UI formatters)
-└── tests.rs        - 40 automated unit & integration test cases
+└── tests.rs        - 48 automated unit & integration test cases
 ```
 
 ## 2. Technology Stack & Dependencies

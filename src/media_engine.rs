@@ -215,33 +215,35 @@ impl ChatQueueState {
             self.transition_in_progress = false;
         }
 
-        if self.current.is_none() && self.queue.is_empty() && self.voice_state == VoiceState::Disconnected {
-            if self.engine_state != EngineState::Idle {
-                info!("[INVARIANT_VIOLATION] Disconnected & empty queue state contradiction! Self-healing state -> IDLE");
-                self.engine_state = EngineState::Idle;
-                self.transition_in_progress = false;
-            }
+        if self.current.is_none()
+            && self.queue.is_empty()
+            && self.voice_state == VoiceState::Disconnected
+            && self.engine_state != EngineState::Idle
+        {
+            info!("[INVARIANT_VIOLATION] Disconnected & empty queue state contradiction! Self-healing state -> IDLE");
+            self.engine_state = EngineState::Idle;
+            self.transition_in_progress = false;
         }
     }
 
     pub fn reconcile(&mut self) {
-        if self.voice_state == VoiceState::Disconnected {
-            if self.engine_state == EngineState::Playing || self.engine_state == EngineState::Paused {
-                info!("[RECONCILE] Playing/Paused state contradiction detected while VC is Disconnected; invalidating generation and resetting runtime state");
-                self.playback_generation += 1;
-                self.transition_in_progress = false;
-                self.is_paused = false;
-                if let Some(curr) = self.current.take() {
-                    info!("[RECONCILE] preserving interrupted active track '{}' at queue head", curr.title);
-                    self.queue.push_front(curr);
-                }
-                self.position_secs = 0;
-                self.engine_state = if self.queue.is_empty() {
-                    EngineState::Idle
-                } else {
-                    EngineState::WaitingForVc
-                };
+        if self.voice_state == VoiceState::Disconnected
+            && (self.engine_state == EngineState::Playing || self.engine_state == EngineState::Paused)
+        {
+            info!("[RECONCILE] Playing/Paused state contradiction detected while VC is Disconnected; invalidating generation and resetting runtime state");
+            self.playback_generation += 1;
+            self.transition_in_progress = false;
+            self.is_paused = false;
+            if let Some(curr) = self.current.take() {
+                info!("[RECONCILE] preserving interrupted active track '{}' at queue head", curr.title);
+                self.queue.push_front(curr);
             }
+            self.position_secs = 0;
+            self.engine_state = if self.queue.is_empty() {
+                EngineState::Idle
+            } else {
+                EngineState::WaitingForVc
+            };
         }
 
         if self.current.is_none() && self.queue.is_empty() && self.engine_state != EngineState::Idle && self.engine_state != EngineState::WaitingForVc {

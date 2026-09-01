@@ -81,8 +81,10 @@ impl DbRepository for MemoryFirstDbRepository {
         if let Some(settings) = self.settings_cache.get(&user_id) {
             return Ok(settings.clone());
         }
-        let mut s = UserSettings::default();
-        s.user_id = user_id;
+        let s = UserSettings {
+            user_id,
+            ..Default::default()
+        };
         self.settings_cache.insert(user_id, s.clone());
         Ok(s)
     }
