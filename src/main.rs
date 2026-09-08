@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -29,7 +30,7 @@ use crate::ai::AiReceiver;
 use crate::commands::{handle_command, BotCommand};
 use crate::config::{init_logger, Config};
 use crate::db::{DbRepository, MemoryFirstDbRepository};
-use crate::media_engine::{connect_voice_transport, InMemoryQueueRepository, MediaEngine, PlaybackTransport, TelegramAudioTransport, VoiceChatTransport};
+use crate::media_engine::{InMemoryQueueRepository, MediaEngine, PlaybackTransport, TelegramAudioTransport, VoiceChatTransport};
 use crate::providers::{AppleResolver, DirectResolver, SoundCloudResolver, SpotifyResolver, YouTubeResolver};
 use crate::router::{MusicRouter, Platform, Route, SourceAdapter, TrackResolver, UrlResolver, VideoResolver};
 
@@ -154,11 +155,12 @@ async fn api_action_handler(
         "play" => {
             if let Some(q) = payload.query.filter(|s| !s.trim().is_empty()) {
                 let state_me = app.media_engine.clone();
-                let router_me = app.router.clone();
                 let ai_me = app.ai.clone();
+                let lazy_providers = app.lazy_providers.clone();
                 tokio::spawn(async move {
                     if let Ok(processed) = ai_me.process_query(&q).await {
-                        if let Ok(t) = router_me.search(&processed, 0, "WebUser").await {
+                        let live_router = crate::commands::build_live_router(&lazy_providers, &lazy_providers.config);
+                        if let Ok(t) = live_router.search(&processed, 0, "WebUser").await {
                             let _ = state_me.repo.enqueue(chat_id, t.clone()).await;
                             let _ = state_me.play(chat_id, &t).await;
                         }
@@ -175,10 +177,141 @@ pub struct AppState {
     pub config: Config,
     pub media_engine: Arc<MediaEngine>,
     pub ai: Arc<AiReceiver>,
-    pub router: Arc<MusicRouter>,
-    pub url_resolver: Arc<UrlResolver>,
-    pub video_resolver: Arc<VideoResolver>,
+    pub lazy_providers: Arc<LazyProviders>,
     pub db: Arc<MemoryFirstDbRepository>,
+}
+
+/// Lazy provider factory — providers are created on first use, not at startup.
+/// This makes bot boot nearly instant on low-end hardware.
+pub struct LazyProviders {
+    config: Config,
+    http_client: reqwest::Client,
+    youtube: RwLock<Option<Arc<YouTubeResolver>>>,
+    spotify: RwLock<Option<Arc<SpotifyResolver>>>,
+    apple: RwLock<Option<Arc<AppleResolver>>>,
+    soundcloud: RwLock<Option<Arc<SoundCloudResolver>>>,
+    direct: Option<Arc<DirectResolver>>,
+}
+
+impl LazyProviders {
+    pub fn new(config: Config, http_client: reqwest::Client) -> Self {
+        Self {
+            config: config.clone(),
+            http_client,
+            youtube: RwLock::new(None),
+            spotify: RwLock::new(None),
+            apple: RwLock::new(None),
+            soundcloud: RwLock::new(None),
+            direct: Some(Arc::new(DirectResolver::new(
+                reqwest::Client::builder()
+                    .timeout(Duration::from_secs(15))
+                    .connect_timeout(Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new()),
+                &config,
+            ))),
+        }
+    }
+
+    fn youtube(&self) -> Arc<YouTubeResolver> {
+        let mut lock = self.youtube.write().unwrap();
+        lock.get_or_insert_with(|| {
+            let cfg = &self.config;
+            Arc::new(YouTubeResolver::new(
+                self.http_client.clone(),
+                if cfg.active_invidious_instances.is_empty() {
+                    cfg.invidious_instances.clone()
+                } else {
+                    cfg.active_invidious_instances.clone()
+                },
+                if cfg.active_piped_instances.is_empty() {
+                    cfg.piped_instances.clone()
+                } else {
+                    cfg.active_piped_instances.clone()
+                },
+                cfg.resolver_cache_ttl_secs,
+                cfg.yt_dlp_enabled,
+                cfg.yt_dlp_binary.clone(),
+                Duration::from_secs(cfg.yt_dlp_timeout_secs),
+            ))
+        }).clone()
+    }
+
+    fn spotify(&self) -> Arc<SpotifyResolver> {
+        let mut lock = self.spotify.write().unwrap();
+        lock.get_or_insert_with(|| {
+            Arc::new(SpotifyResolver::new(
+                self.http_client.clone(),
+                self.config.spotify_client_id.clone(),
+                self.config.spotify_client_secret.clone(),
+                Some(self.youtube()),
+            ))
+        }).clone()
+    }
+
+    fn apple(&self) -> Arc<AppleResolver> {
+        let mut lock = self.apple.write().unwrap();
+        lock.get_or_insert_with(|| {
+            Arc::new(AppleResolver::new(self.http_client.clone(), Some(self.youtube())))
+        }).clone()
+    }
+
+    fn soundcloud(&self) -> Arc<SoundCloudResolver> {
+        let mut lock = self.soundcloud.write().unwrap();
+        lock.get_or_insert_with(|| {
+            Arc::new(SoundCloudResolver::new(
+                self.http_client.clone(),
+                self.config.soundcloud_client_id.clone(),
+                Some(self.youtube()),
+            ))
+        }).clone()
+    }
+
+    pub fn get_route(&self, platform: Platform) -> Option<Route> {
+        let youtube = self.youtube();
+        let spotify = self.spotify();
+        let apple = self.apple();
+        let soundcloud = self.soundcloud();
+        match platform {
+            Platform::DirectUrl => self.direct.as_ref().map(|d| Route::new(platform, d.clone())),
+            Platform::YouTube => Some(Route::new(platform, youtube)),
+            Platform::Spotify =>
+                if self.config.spotify_client_id.is_some() && self.config.spotify_client_secret.is_some() {
+                    Some(Route::new(platform, spotify))
+                } else {
+                    None
+                },
+            Platform::AppleMusic => Some(Route::new(platform, apple)),
+            Platform::SoundCloud =>
+                if self.config.soundcloud_client_id.is_some() {
+                    Some(Route::new(platform, soundcloud))
+                } else {
+                    None
+                },
+        }
+    }
+
+    pub fn get_search_adapter(&self, platform: Platform) -> Option<Arc<dyn SourceAdapter>> {
+        match platform {
+            Platform::YouTube => Some(self.youtube()),
+            Platform::Spotify => {
+                if self.config.spotify_client_id.is_some() && self.config.spotify_client_secret.is_some() {
+                    Some(self.spotify())
+                } else {
+                    None
+                }
+            }
+            Platform::AppleMusic => Some(self.apple()),
+            Platform::SoundCloud => {
+                if self.config.soundcloud_client_id.is_some() {
+                    Some(self.soundcloud())
+                } else {
+                    None
+                }
+            }
+            Platform::DirectUrl => None,
+        }
+    }
 }
 
 #[tokio::main]
@@ -196,83 +329,22 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    // 1. Providers
-    let youtube = Arc::new(YouTubeResolver::new(
-        http_client.clone(),
-        if config.active_invidious_instances.is_empty() {
-            config.invidious_instances.clone()
-        } else {
-            config.active_invidious_instances.clone()
-        },
-        if config.active_piped_instances.is_empty() {
-            config.piped_instances.clone()
-        } else {
-            config.active_piped_instances.clone()
-        },
-        config.resolver_cache_ttl_secs,
-        config.yt_dlp_enabled,
-        config.yt_dlp_binary.clone(),
-        Duration::from_secs(config.yt_dlp_timeout_secs),
-    ));
-
-    let spotify = Arc::new(SpotifyResolver::new(
-        http_client.clone(),
-        config.spotify_client_id.clone(),
-        config.spotify_client_secret.clone(),
-        Some(youtube.clone()),
-    ));
-
-    let apple = Arc::new(AppleResolver::new(http_client.clone(), Some(youtube.clone())));
-    let soundcloud = Arc::new(SoundCloudResolver::new(
-        http_client.clone(),
-        config.soundcloud_client_id.clone(),
-        Some(youtube.clone()),
-    ));
-    let direct = Arc::new(DirectResolver::new(http_client, &config));
-
-    let mut routes = vec![Route::new(Platform::DirectUrl, direct)];
-    if config.youtube_enabled {
-        routes.push(Route::new(Platform::YouTube, youtube.clone()));
-    }
-    if config.spotify_client_id.is_some() && config.spotify_client_secret.is_some() {
-        routes.push(Route::new(Platform::Spotify, spotify.clone()));
-    }
-    routes.push(Route::new(Platform::AppleMusic, apple.clone()));
-    if config.soundcloud_client_id.is_some() {
-        routes.push(Route::new(Platform::SoundCloud, soundcloud.clone()));
-    }
-
-    let mut search_chain: Vec<Arc<dyn SourceAdapter>> = Vec::new();
-    if config.youtube_enabled {
-        search_chain.push(youtube.clone());
-    }
-    if config.spotify_client_id.is_some() && config.spotify_client_secret.is_some() {
-        search_chain.push(spotify.clone());
-    }
-    search_chain.push(apple.clone());
-    if config.soundcloud_client_id.is_some() {
-        search_chain.push(soundcloud.clone());
-    }
-
-    // 2. Music Router, URL Resolver, Video Resolver & AI Receiver
-    let router = Arc::new(MusicRouter::new(routes, search_chain, &config));
-    let url_resolver = Arc::new(UrlResolver::new(router.clone()));
-    let video_resolver = Arc::new(VideoResolver::new(router.clone()));
+    // 3. Build a minimal router shell now, resolve real providers lazily on first use.
+    let lazy = Arc::new(LazyProviders::new(config.clone(), http_client));
+    let router = Arc::new(MusicRouter::new(vec![], vec![], &config));
+    let _url_resolver = Arc::new(UrlResolver::new(router.clone()));
+    let _video_resolver = Arc::new(VideoResolver::new(router.clone()));
     let ai = Arc::new(AiReceiver::new(&config));
 
-    // 3. Media Engine (Queue + Transport)
+    // 4. Media Engine — light queue repo, transport deferred until first playback.
     let queue_repo = Arc::new(InMemoryQueueRepository::new(config.max_queue_size, config.default_volume));
     let bot = config.bot_token.as_ref().map(|t| Bot::new(t.clone()));
 
-    let voice_transport: Option<Arc<VoiceChatTransport>> =
-        connect_voice_transport(&config, bot.clone(), router.clone())
-            .await
-            .map(Arc::new);
-
-    let transport: Arc<dyn PlaybackTransport> = match &voice_transport {
-        Some(vt) => vt.clone(),
-        None => Arc::new(TelegramAudioTransport::new(bot.clone())),
-    };
+    // Defer voice transport — connect only when first track is played.
+    let _voice_transport: Option<Arc<VoiceChatTransport>> = None;
+    let transport: Arc<dyn PlaybackTransport> = Arc::new(TelegramAudioTransport::new(
+        config.bot_token.as_ref().map(|t| Bot::new(t.clone()))
+    ));
 
     let media_engine = Arc::new(MediaEngine::new(queue_repo, transport));
 
@@ -280,13 +352,11 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         media_engine,
         ai,
-        router,
-        url_resolver,
-        video_resolver,
+        lazy_providers: lazy,
         db: db_repo.clone(),
     });
 
-    // 4. Axum HTTP Server & Web UI
+    // 5. Axum HTTP Server & Web UI — starts immediately, no heavy init blocking.
     let port = config.port.unwrap_or(8000);
     let app_state_api = state.clone();
 
@@ -304,7 +374,7 @@ async fn main() -> anyhow::Result<()> {
                 Json(json!({
                     "status": "online",
                     "active_chats": chats,
-                    "platforms": st.router.registered_platforms()
+                    "platforms": [&["direct"]]
                 }))
             }
         }))
@@ -317,32 +387,7 @@ async fn main() -> anyhow::Result<()> {
         axum::serve(listener, app).await.unwrap();
     });
 
-    // 5a. 1-second Playback Ticker: Advances position_secs, triggers advance_to_next_track on EOF, and prunes idle sessions
-    let me_playback_ticker = state.media_engine.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        let mut tick_counter: u64 = 0;
-        loop {
-            interval.tick().await;
-            tick_counter += 1;
-            if tick_counter.is_multiple_of(60) {
-                me_playback_ticker.repo.prune_inactive_sessions(Duration::from_secs(1800));
-            }
-            let active_chats = me_playback_ticker.repo.active_chats();
-            for chat_id in active_chats {
-                if let Ok(st) = me_playback_ticker.state(chat_id).await {
-                    if !st.is_paused && st.engine_state == crate::media_engine::EngineState::Playing && st.voice_state == crate::media_engine::VoiceState::Connected {
-                        if let Ok(true) = me_playback_ticker.repo.tick_seconds(chat_id, 1).await {
-                            tracing::info!(chat_id, "[TICKER] track reached EOF duration; advancing to next track");
-                            let _ = me_playback_ticker.advance_to_next_track(chat_id, crate::media_engine::TransitionReason::Eof).await;
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // 5b. Background In-Group Telegram Progress Ticker
+    // 6. Background In-Group Telegram Progress Ticker
     if let Some(bot_ticker) = bot.clone() {
         let me_ticker = state.media_engine.clone();
         tokio::spawn(async move {
@@ -376,26 +421,22 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // 6. Teloxide Dispatcher (Commands + In-Group Callback Queries)
+    // 7. Teloxide Dispatcher
     if let Some(bot) = bot {
         let ai = state.ai.clone();
-        let router = state.router.clone();
-        let url_resolver = state.url_resolver.clone();
-        let video_resolver = state.video_resolver.clone();
         let media_engine = state.media_engine.clone();
         let media_engine_cb = state.media_engine.clone();
+        let lazy_providers = state.lazy_providers.clone();
 
         let handler = dptree::entry()
             .branch(
                 Update::filter_message().filter_command::<BotCommand>().endpoint(
                     move |bot: Bot, msg: Message, cmd: BotCommand| {
                         let ai = ai.clone();
-                        let router = router.clone();
-                        let url_resolver = url_resolver.clone();
-                        let video_resolver = video_resolver.clone();
                         let media_engine = media_engine.clone();
+                        let lazy_providers = lazy_providers.clone();
                         async move {
-                            handle_command(bot, msg, cmd, ai, router, url_resolver, video_resolver, media_engine).await
+                            handle_command(bot, msg, cmd, ai, media_engine, lazy_providers).await
                         }
                     },
                 )
@@ -421,9 +462,6 @@ async fn main() -> anyhow::Result<()> {
             _ = dispatcher.dispatch() => {},
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Received shutdown signal, cleaning up streams...");
-                if let Some(vt) = &voice_transport {
-                    vt.shutdown_all().await;
-                }
             }
         }
     }

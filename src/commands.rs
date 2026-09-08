@@ -5,7 +5,41 @@ use teloxide::utils::command::BotCommands;
 
 use crate::ai::AiReceiver;
 use crate::media_engine::{LoopMode, MediaEngine};
-use crate::router::{MusicRouter, Platform, Track, TrackResolver, UrlResolver, VideoResolver};
+use crate::router::{MusicRouter, Platform, Route, Track, SourceAdapter};
+
+pub fn build_live_router(lazy: &crate::LazyProviders, config: &crate::config::Config) -> MusicRouter {
+    let youtube = lazy.youtube();
+    let spotify = lazy.spotify();
+    let apple = lazy.apple();
+    let soundcloud = lazy.soundcloud();
+    let direct = lazy.direct.as_ref().unwrap().clone();
+
+    let mut routes = vec![Route::new(Platform::DirectUrl, direct)];
+    if config.youtube_enabled {
+        routes.push(Route::new(Platform::YouTube, youtube.clone()));
+    }
+    if config.spotify_client_id.is_some() && config.spotify_client_secret.is_some() {
+        routes.push(Route::new(Platform::Spotify, spotify.clone()));
+    }
+    routes.push(Route::new(Platform::AppleMusic, apple.clone()));
+    if config.soundcloud_client_id.is_some() {
+        routes.push(Route::new(Platform::SoundCloud, soundcloud.clone()));
+    }
+
+    let mut search_chain: Vec<Arc<dyn SourceAdapter>> = Vec::new();
+    if config.youtube_enabled {
+        search_chain.push(youtube);
+    }
+    if config.spotify_client_id.is_some() && config.spotify_client_secret.is_some() {
+        search_chain.push(spotify);
+    }
+    search_chain.push(apple);
+    if config.soundcloud_client_id.is_some() {
+        search_chain.push(soundcloud);
+    }
+
+    MusicRouter::new(routes, search_chain, config)
+}
 
 pub fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -179,15 +213,17 @@ impl SoulKingUI {
 
     pub fn format_start(name: &str) -> String {
         format!(
-            "☠️ <b>YOHOHOHO!</b> Welcome, <b>{name}</b>! ☠️\n\
+            "💀 <b>YOHOHOHO!</b> Welcome to Brook's Songbook, <b>{name}</b>! 💀\n\
              ──────────────────────────────\n\
              <blockquote>\
+             <i>\"A concert is best when every soul in the room feels it!\"</i>\n\
+             — Brook, Musician of the Straw Hat Pirates\n\n\
              🎻 I'm <b>Soul King Brook</b>, the musician of the Straw Hat Pirates!\n\n\
              🎵 Play your favorite tunes, vibe to any mood, and let your soul\n\
              dance to Binks' Sake!\n\n\
              💡 Start with <code>/help</code> or jump straight in with <code>/play &lt;song name&gt;</code>.\
-             </blockquote>\n\
-             <i>🎻 Yohohoho! SKULL JOKE! 🎻</i>",
+             </blockquote>\n\n\
+             💀 <i>\"May your evenings be lively, your hearts be light, and your speakers never quiet. Yohohoho!\"</i>",
             name = escape_html(name)
         )
     }
@@ -210,20 +246,20 @@ impl SoulKingUI {
     }
 
     pub fn format_help_main() -> String {
-        "☠️ <b>SOUL KING INTERACTIVE HELP CENTER</b> ☠️\n\
-         ──────────────────────────────\n\
+        "🎩 <b>𝗕𝗥𝗢𝗢𝗞 𝗕𝗢𝗧 - Features</b>\n\n\
+         ★ ∘ ━━━━━━━┉┅╍\n\
          <blockquote>\
-         🎻 Welcome to Soul King Brook's Command Center!\n\n\
-         Select a category below using the interactive buttons to view detailed command syntax, permissions, and features:\n\n\
-         🎵 <b>Music</b> — Search & stream audio/video\n\
-         🎛 <b>Playback</b> — Control active playback session\n\
-         📋 <b>Queue</b> — Manage concert setlist & queue\n\
-         🎙 <b>Voice Chat</b> — Assistant VC diagnostics\n\
-         🛡️ <b>Permissions</b> — Access control & security\n\
-         ⚙️ <b>Settings</b> — Bot configuration\n\
-         ℹ️ <b>Information</b> — About Soul King Brook\n\
+         Select a category below using the interactive buttons to explore detailed commands, features, and permissions:\n\n\
+         🎵 <b>Music</b> : Search & stream audio or video\n\
+         🎛 <b>Playback</b> : Control the active playback session\n\
+         📋 <b>Queue</b> : Manage your concert setlist & queue\n\
+         🎙 <b>Voice Chat</b> : Voice chat status & diagnostics\n\
+         🛡️ <b>Permissions</b> : Access control & security\n\
+         ⚙️ <b>Settings</b> : Configure your Brook experience\n\
+         ℹ️ <b>Information</b> : Learn more about Soul King Brook\n\
          </blockquote>\n\
-         <i>🎻 Select a category button below! 🎻</i>".to_string()
+         ★ ∘ ━━━━━━━━┉┅╍\n\n\
+         🎻 <i>Select a category button below! 🎻</i>".to_string()
     }
 
     pub fn format_help_category(category: &str) -> String {
@@ -238,7 +274,8 @@ impl SoulKingUI {
                  🌐 <code>/vplay &lt;title or URL&gt;</code>\n\
                  • Stream video audio into Telegram Voice Chat.\n\n\
                  <i>Permissions: Anyone can request tracks to be enqueued.</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             "help_playback" => {
                 "🎛 <b>PLAYBACK CONTROLS</b>\n\
@@ -252,7 +289,8 @@ impl SoulKingUI {
                  🔒 <code>/seek &lt;secs&gt;</code> — Seek to position in seconds\n\
                  🔒 <code>/volume &lt;1-200&gt;</code> — Adjust playback volume\n\n\
                  <i>Permissions: 🔒 Session Controller / Chat Admin / Bot Owner.</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             "help_queue" => {
                 "📋 <b>QUEUE & SETLIST COMMANDS</b>\n\
@@ -263,7 +301,8 @@ impl SoulKingUI {
                  🔒 <code>/loop</code> — Toggle loop mode (Off ➡️ Track 🔂 Queue 🔁)\n\
                  🔒 <code>/shuffle</code> — Randomize upcoming queue order\n\n\
                  <i>Permissions: /queue & /now are Public. Loop & Shuffle require Session Controller.</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             "help_voice" => {
                 "🎙 <b>VOICE CHAT & DIAGNOSTICS</b>\n\
@@ -271,19 +310,21 @@ impl SoulKingUI {
                  <blockquote>\
                  🌐 <code>/playerdebug</code> — View real-time player diagnostics, VoiceState, EngineState, and generation tokens.\n\n\
                  <i>The assistant account automatically joins Telegram Voice Chats when music is played.</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             "help_permissions" => {
                 "🛡️ <b>PERMISSIONS & SECURITY POLICY</b>\n\
                  ──────────────────────────────\n\
                  <blockquote>\
-                 <b>Role Hierarchy:</b>\
+                 <b>Role Hierarchy:</b>\n\
                  • 👑 <b>Bot Owner</b> — Global administrative override.\n\
                  • 🛡️ <b>Chat Admin</b> — Group administrator override.\n\
                  • 🔒 <b>Session Controller</b> — User who initiated active playback.\n\
                  • 🌐 <b>Public User</b> — Can view queue, now playing, & enqueue tracks.\n\n\
                  <i>Interruption Protection: Non-controllers can enqueue tracks safely behind the active setlist without interrupting current music.</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             "help_settings" => {
                 "⚙️ <b>SETTINGS & CONFIGURATION</b>\n\
@@ -292,7 +333,8 @@ impl SoulKingUI {
                  • <b>Memory-First Mode:</b> Standalone runtime execution with 0 DB latency.\n\
                  • <b>Piped HTTP Stream Proxy:</b> Direct memory streaming into WebRTC.\n\
                  • <b>Max Queue Limit:</b> 100 tracks per chat.\n\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
             _ => {
                 "ℹ️ <b>ABOUT SOUL KING BROOK</b>\n\
@@ -301,7 +343,8 @@ impl SoulKingUI {
                  🎻 <b>Brook (Soul King)</b> — Musician of the Straw Hat Pirates!\n\
                  Powered by Modular Rust Engine v0.2.0 & Teloxide.\n\n\
                  <i>🎻 Yohohoho! Feel the music in your bones! 🎻</i>\
-                 </blockquote>".to_string()
+                 </blockquote>\n\n\
+                 🎻 <i>Select a category button below! 🎻</i>".to_string()
             }
         }
     }
@@ -433,10 +476,8 @@ pub async fn handle_command(
     msg: Message,
     cmd: BotCommand,
     ai: Arc<AiReceiver>,
-    router: Arc<MusicRouter>,
-    url_resolver: Arc<UrlResolver>,
-    video_resolver: Arc<VideoResolver>,
     media_engine: Arc<MediaEngine>,
+    lazy_providers: Arc<crate::LazyProviders>,
 ) -> anyhow::Result<()> {
     let chat_id = msg.chat.id.0;
     let pb_state = media_engine.reconcile_session(chat_id).await?;
@@ -468,10 +509,12 @@ pub async fn handle_command(
             }
 
             let track_result = if Platform::from_url(&query).is_some() {
-                url_resolver.resolve_url(&query, user_id, &user_name).await
+                let live_router = build_live_router(&lazy_providers, &lazy_providers.config);
+                live_router.execute_search(&query, user_id, &user_name).await
             } else {
                 let processed_query = ai.process_query(&query).await?;
-                router.search(&processed_query, user_id, &user_name).await
+                let live_router = build_live_router(&lazy_providers, &lazy_providers.config);
+                live_router.execute_search(&processed_query, user_id, &user_name).await
             };
 
             match track_result {
@@ -502,7 +545,8 @@ pub async fn handle_command(
                 return Ok(());
             }
 
-            match video_resolver.resolve_video(&query, user_id, &user_name).await {
+            let live_router = build_live_router(&lazy_providers, &lazy_providers.config);
+            match live_router.execute_search(&query, user_id, &user_name).await {
                 Ok(track) => {
                     let maybe_pos = media_engine.enqueue_and_play(chat_id, track.clone()).await?;
                     let pb_state = media_engine.state(chat_id).await?;

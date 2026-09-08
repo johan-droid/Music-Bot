@@ -277,6 +277,7 @@ impl MusicRouter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn registered_platforms(&self) -> Vec<&'static str> {
         self.routes.iter().map(|r| r.platform.name()).collect()
     }
@@ -437,10 +438,12 @@ impl TrackResolver for MusicRouter {
 }
 
 /// URL Resolver: Direct URL & link resolver.
+#[allow(dead_code)]
 pub struct UrlResolver {
     pub router: Arc<MusicRouter>,
 }
 
+#[allow(dead_code)]
 impl UrlResolver {
     pub fn new(router: Arc<MusicRouter>) -> Self {
         Self { router }
@@ -452,10 +455,12 @@ impl UrlResolver {
 }
 
 /// Video Resolver: Video search & URL resolver for /vplay commands.
+#[allow(dead_code)]
 pub struct VideoResolver {
     pub router: Arc<MusicRouter>,
 }
 
+#[allow(dead_code)]
 impl VideoResolver {
     pub fn new(router: Arc<MusicRouter>) -> Self {
         Self { router }

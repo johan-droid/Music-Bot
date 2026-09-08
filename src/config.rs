@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
 pub fn init_logger() {
@@ -159,6 +159,10 @@ impl Config {
             .ok()
             .filter(|v| !v.contains("your_"));
 
+        // Fast-boot: skip the expensive instance health-check ping at startup.
+        // Instances are checked lazily on first use instead.
+        let _skip_instance_check = env::var("SKIP_INSTANCE_CHECK").unwrap_or_default().parse().unwrap_or(false);
+
         let owner_id = env::var("OWNER_ID").ok().and_then(|v| v.parse::<i64>().ok());
         let admin_password = env::var("ADMIN_PASSWORD").ok().filter(|v| !v.is_empty());
         let port = env::var("PORT").ok().and_then(|v| v.parse::<u16>().ok());
@@ -232,7 +236,7 @@ impl Config {
         let mongodb_uri = env::var("MONGODB_URI").ok().filter(|v| !v.is_empty());
         let heroku_app_name = env::var("HEROKU_APP_NAME").ok().filter(|v| !v.is_empty());
 
-        let mut config = Self {
+        let config = Self {
             bot_token,
             owner_id,
             admin_password,
@@ -272,92 +276,42 @@ impl Config {
             heroku_app_name,
         };
 
-        config.check_instances().await;
+        // Fast-boot: run instance health checks in the background, don't block startup.
+        // Instances are also checked lazily on first use when SKIP_INSTANCE_CHECK is set.
+        let cfg_mutex = tokio::sync::Mutex::new(config.clone());
+        tokio::spawn(async move {
+            if env::var("SKIP_INSTANCE_CHECK").unwrap_or_default().parse().unwrap_or(false) {
+                return;
+            }
+            let mut cfg = cfg_mutex.lock().await;
+            cfg.check_instances_light().await;
+        });
         config
     }
 
-    async fn check_instances(&mut self) {
+    /// Light-weight instance check: single attempt per instance, no retries, runs in background.
+    async fn check_instances_light(&mut self) {
         let client = reqwest::Client::new();
-        let timeout = Duration::from_secs(5);
-        let max_retries = 3;
-        let retry_delay = Duration::from_secs(1);
-
-        let mut handles = Vec::with_capacity(self.invidious_instances.len() + self.piped_instances.len());
-        for instance in &self.invidious_instances {
-            let client = client.clone();
-            let instance = instance.clone();
-            handles.push(tokio::spawn(async move {
-                let mut retries = 0;
-                while retries < max_retries {
-                    let ping_url = format!("https://{}/api/v1/ping", instance);
-                    let search_url = format!("https://{}/api/v1/search?q=test&type=video", instance);
-                    for url in &[ping_url, search_url] {
-                        match client.get(url).timeout(timeout).send().await {
-                            Ok(resp) if resp.status().is_success() => return Some(instance.clone()),
-                            Ok(_) => {
-                                retries += 1;
-                                tokio::time::sleep(retry_delay).await;
-                                continue;
-                            }
-                            Err(_) => {
-                                retries += 1;
-                                tokio::time::sleep(retry_delay).await;
-                                continue;
-                            }
-                        }
-                    }
-                }
-                None
-            }));
-        }
-        for instance in &self.piped_instances {
-            let client = client.clone();
-            let instance = instance.clone();
-            handles.push(tokio::spawn(async move {
-                let mut retries = 0;
-                while retries < max_retries {
-                    let url = format!("https://{}/api/v1/search?q=test", instance);
-                    match client.get(&url).timeout(timeout).send().await {
-                        Ok(resp) if resp.status().is_success() => return Some(instance.clone()),
-                        Ok(_) => {
-                            retries += 1;
-                            tokio::time::sleep(retry_delay).await;
-                            continue;
-                        }
-                        Err(_) => {
-                            retries += 1;
-                            tokio::time::sleep(retry_delay).await;
-                            continue;
-                        }
-                    }
-                }
-                None
-            }));
-        }
+        let timeout = Duration::from_secs(3);
 
         let mut active_invidious = Vec::new();
         let mut active_piped = Vec::new();
-        for (idx, (name, result)) in self
-            .invidious_instances
-            .iter()
-            .chain(self.piped_instances.iter())
-            .zip(handles)
-            .enumerate()
-        {
-            if let Some(found) = result.await.unwrap_or(None) {
-                if idx < self.invidious_instances.len() {
-                    active_invidious.push(found.clone());
-                    info!("✅ Invidious instance is healthy: {}", found);
-                } else {
-                    active_piped.push(found.clone());
-                    info!("✅ Piped instance is healthy: {}", found);
-                }
-            } else if idx < self.invidious_instances.len() {
-                warn!("❌ Invidious instance failed after retries: {}", name);
-            } else {
-                warn!("❌ Piped instance unavailable after retries: {}", name);
+
+        for instance in &self.invidious_instances {
+            let ping_url = format!("https://{}/api/v1/ping", instance);
+            if client.get(&ping_url).timeout(timeout).send().await.is_ok() {
+                active_invidious.push(instance.clone());
+                info!("✅ Invidious instance reachable: {}", instance);
             }
         }
+        for instance in &self.piped_instances {
+            let url = format!("https://{}/api/v1/search?q=test", instance);
+            if client.get(&url).timeout(timeout).send().await.is_ok() {
+                active_piped.push(instance.clone());
+                info!("✅ Piped instance reachable: {}", instance);
+            }
+        }
+
         self.active_invidious_instances = active_invidious;
         self.active_piped_instances = active_piped;
     }

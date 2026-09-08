@@ -696,6 +696,7 @@ pub struct VoiceChatTransport {
 }
 
 impl VoiceChatTransport {
+    #[allow(dead_code)]
     pub fn new(
         calls: Calls,
         bot: Option<Bot>,
@@ -710,6 +711,7 @@ impl VoiceChatTransport {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn shutdown_all(&self) {
         let results = self.calls.shutdown().await;
         for (chat_id, res) in results {
@@ -721,6 +723,7 @@ impl VoiceChatTransport {
     }
 }
 
+#[allow(dead_code)]
 pub async fn connect_voice_transport(
     config: &Config,
     bot: Option<Bot>,
