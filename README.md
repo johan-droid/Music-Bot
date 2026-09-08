@@ -110,6 +110,17 @@ Both **buildpack** (recommended) and **container (Docker)** deploys are supporte
 The bot runs as a **worker dyno** (a long-running process that connects out to
 the Telegram API) — not a web dyno, so there is no public `*.herokuapp.com` URL.
 
+**Fastest path** — one command (creates the app, sets both buildpacks, config
+vars, and scales to a worker):
+
+```bash
+./bin/setup_heroku brook-music-bot your_bot_token your_owner_id
+git push heroku master
+```
+
+Or manually (the buildpacks **must** be set before the first push — Rust is
+not auto-detected by Heroku):
+
 ```bash
 # ── Buildpack path (Cedar) ──────────────────────────────────────────────
 heroku create brook-music-bot

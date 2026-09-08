@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# One-shot Heroku app setup for Brock Music Bot (worker dyno).
+#
+# Heroku cannot auto-detect Rust, so buildpacks MUST be configured on the app
+# before the first `git push heroku` (app.json is only honored by the
+# "Deploy to Heroku" button).
+#
+# Usage:
+#   ./bin/setup_heroku.sh <app-name> [bot-token] [owner-id]
+#
+# Example:
+#   ./bin/setup_heroku.sh brook-music-bot 123456789:ABCdef...
+set -euo pipefail
+
+APP_NAME="${1:-}"
+BOT_TOKEN="${2:-}"
+
+if [[ -z "$APP_NAME" ]]; then
+    echo "Usage: $0 <app-name> [bot-token] [owner-id]"
+    echo
+    echo "Example:"
+    echo "  $0 brook-music-bot 123456789:ABCdef... 987654321"
+    exit 1
+fi
+
+if ! command -v heroku >/dev/null 2>&1; then
+    echo "Heroku CLI not found. Install it first: https://devcenter.heroku.com/articles/heroku-cli"
+    exit 1
+fi
+
+heroku auth:whoami >/dev/null 2>&1 || { echo "Log in first: heroku login"; exit 1; }
+
+if ! heroku apps:info -a "$APP_NAME" >/dev/null 2>&1; then
+    echo "==> Creating app ${APP_NAME} (heroku-24 stack)"
+    heroku create "$APP_NAME" --stack heroku-24
+else
+    echo "==> App ${APP_NAME} already exists"
+fi
+
+echo "==> Setting buildpacks (apt BEFORE rust — order matters)"
+heroku buildpacks:set https://github.com/heroku-community/apt --index 1 -a "$APP_NAME"
+heroku buildpacks:set https://github.com/emk/heroku-buildpack-rust --index 2 -a "$APP_NAME"
+
+if [[ -n "$BOT_TOKEN" && "$BOT_TOKEN" != "your_token" ]]; then
+    echo "==> Setting BOT_TOKEN"
+    heroku config:set "BOT_TOKEN=$BOT_TOKEN" -a "$APP_NAME"
+fi
+
+if [[ -n "${3:-}" ]]; then
+    echo "==> Setting OWNER_ID"
+    heroku config:set "OWNER_ID=$3" -a "$APP_NAME"
+fi
+
+echo "==> Scaling to a single worker dyno (best-effort before first deploy)"
+if ! heroku ps:scale web=0 worker=1 -a "$APP_NAME"; then
+    echo "   (No release yet — run 'heroku ps:scale web=0 worker=1 -a ${APP_NAME}' after the first successful push.)"
+fi
+
+cat <<EOF
+
+✅ ${APP_NAME} is ready. Deploy with:
+
+    git remote add heroku https://git.heroku.com/${APP_NAME}.git   # one time
+    git push heroku master
+
+After the first successful deploy, set any extra config vars (see .env.example):
+    heroku config:set TG_API_ID=... TG_API_HASH=... -a ${APP_NAME}
+EOF

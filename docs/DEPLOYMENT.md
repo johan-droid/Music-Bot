@@ -15,14 +15,30 @@ The repo ships everything the buildpacks need:
 | `RustConfig` | Pins the Rust toolchain for the [emk Rust buildpack](https://github.com/emk/heroku-buildpack-rust) to the exact version the code is verified against (`VERSION=1.97.1`, `--release --locked`). Local `cargo` ignores this file. |
 | `Aptfile` | Native build deps (`clang`, `cmake`, `pkg-config`, `libssl-dev`, `libopus-dev`) and runtime deps (`ffmpeg`, `python3`, `python3-pip`) |
 | `bin/start_worker` | Worker dyno entry point (see `Procfile`): installs `yt-dlp` into `/tmp` if missing, then `exec`s the compiled binary |
+| `bin/setup_heroku` | One-shot app setup: creates the app, configures **both buildpacks**, sets `BOT_TOKEN`/`OWNER_ID`, scales to a single worker |
 | `app.json` | App template for the **Deploy to Heroku** button (env vars + buildpacks) |
 
 ### Steps
 
+> ⚠️ **Rust is NOT auto-detectable on Heroku.** If you push before configuring the
+> buildpacks on the app, the push fails with:
+> `!  No default language could be detected for this app.`
+> The buildpacks must be set **once per app** (see step 1). `app.json` is only
+> honored by the "Deploy to Heroku" button — `heroku create` + `git push` does
+> NOT read it.
+
 **1. Create the app with both buildpacks — order matters (apt BEFORE Rust):**
 
+The one-liner does everything (create → buildpacks → config vars → scale):
+
 ```bash
-heroku create brook-music-bot
+./bin/setup_heroku brook-music-bot 123456789:your_token_here 123456789
+```
+
+Or manually:
+
+```bash
+heroku create brook-music-bot --stack heroku-24
 heroku buildpacks:set https://github.com/heroku-community/apt --index 1 -a brook-music-bot
 heroku buildpacks:set https://github.com/emk/heroku-buildpack-rust --index 2 -a brook-music-bot
 ```
@@ -75,6 +91,10 @@ heroku logs --tail -a brook-music-bot
 
 ### Troubleshooting
 
+- **«No default language could be detected for this app»:** the buildpacks are
+  not configured on the app. Run `./bin/setup_heroku <app-name>` (or the
+  two `heroku buildpacks:set` commands above), then push again. Existing apps
+  can be fixed retroactively — you do **not** need to recreate the app.
 - **Rust toolchain:** pinned via the `RustConfig` file (`VERSION=1.97.1`) for the
   emk buildpack. Bump it only after verifying locally with
   `cargo build --release --locked`.
