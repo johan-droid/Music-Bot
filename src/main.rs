@@ -464,6 +464,18 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("Received shutdown signal, cleaning up streams...");
             }
         }
+    } else {
+        // No BOT_TOKEN configured yet: still keep the HTTP control plane alive so
+        // the dyno doesn't exit (R10) on first deploy before config vars are set.
+        // Heroku restarts the dyno automatically once BOT_TOKEN is added.
+        tracing::info!(
+            "BOT_TOKEN not configured. HTTP UI is up on :{port}; add BOT_TOKEN (+ friends) as config vars and the Telegram dispatcher will start on next release.",
+        );
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received shutdown signal, cleaning up streams...");
+            }
+        }
     }
 
     Ok(())

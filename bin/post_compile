@@ -1,19 +1,52 @@
 #!/usr/bin/env bash
-# Heroku post-compile hook: install yt-dlp for YouTube audio extraction.
-# Runs after the Rust buildpack compiles the binary.
-set -euo pipefail
+# BEST-EFFORT build-time hook: installs yt-dlp for YouTube audio extraction.
+#
+# NOTE: the standard Cedar buildpack API (`detect`/`compile`/`release`) does NOT
+# chain an app-level `bin/post_compile`, and neither the heroku-buildpack-apt nor
+# the emk/heroku-buildpack-rust buildpacks invoke this file. A guaranteed
+# runtime installation lives in `bin/start_worker` (the Procfile worker command),
+# which installs yt-dlp into the dyno's writable /tmp on every boot.
+#
+# This hook only runs if you wire a buildpack that DOES chain it; keeping it
+# harmless is intentional.
+set -u
+
+# Make ~/.local/bin available on the dyno PATH (classic Heroku profile.d hook).
+PROFILE_DIR="${BUILD_DIR:-$PWD}/.profile.d"
+mkdir -p "$PROFILE_DIR"
+cat > "$PROFILE_DIR/yt-dlp.sh" <<'EOF'
+export PATH="$HOME/.local/bin:$PATH"
+EOF
+
+install_ytdlp() {
+    local pip_bin="$1"
+    echo "Installing yt-dlp via ${pip_bin}..."
+    if "$pip_bin" install --user --no-cache-dir yt-dlp; then
+        return 0
+    fi
+    # Ubuntu 24.04 (heroku-24) images ship PEP-668 "externally managed" Python —
+    # retry with --break-system-packages.
+    echo "Retrying ${pip_bin} with --break-system-packages..."
+    if "$pip_bin" install --user --break-system-packages --no-cache-dir yt-dlp; then
+        return 0
+    fi
+    return 1
+}
 
 if command -v pip3 &>/dev/null; then
-  echo "Installing yt-dlp via pip3..."
-  pip3 install --user --no-cache-dir yt-dlp
-  # Ensure ~/.local/bin is on PATH for Heroku dynos
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
-  echo "yt-dlp installed: $(~/.local/bin/yt-dlp --version 2>/dev/null || echo 'unknown')"
+    if install_ytdlp pip3; then
+        echo "yt-dlp installed: $("$HOME/.local/bin/yt-dlp" --version 2>/dev/null || echo 'unknown')"
+        exit 0
+    fi
 elif command -v pip &>/dev/null; then
-  echo "Installing yt-dlp via pip..."
-  pip install --user --no-cache-dir yt-dlp
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
-  echo "yt-dlp installed: $(~/.local/bin/yt-dlp --version 2>/dev/null || echo 'unknown')"
+    if install_ytdlp pip; then
+        echo "yt-dlp installed: $("$HOME/.local/bin/yt-dlp" --version 2>/dev/null || echo 'unknown')"
+        exit 0
+    fi
 else
-  echo "WARNING: pip not found, skipping yt-dlp installation"
+    echo "WARNING: pip not found, skipping yt-dlp installation"
+    exit 0
 fi
+
+echo "WARNING: failed to install yt-dlp (continuing build)"
+exit 0

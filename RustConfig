@@ -1,0 +1,10 @@
+# RustConfig — read by the emk/heroku-buildpack-rust buildpack (it sources this
+# file before running cargo). Local `cargo`/`rustup` ignore this file, so local
+# builds keep using your default toolchain.
+#
+# VERSION is the exact Rust version this codebase is verified against. Bump it
+# only after confirming a clean `cargo build --release --locked` locally.
+VERSION=1.97.1
+
+# Always build from the committed Cargo.lock for reproducible deploys.
+RUST_CARGO_BUILD_FLAGS="--release --locked"

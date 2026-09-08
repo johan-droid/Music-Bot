@@ -23,7 +23,7 @@ This repository is **100% Pure Hardcore Rust** (Rust 2021 Edition) powered by To
 - **Single State Machine & Race Guard**: Playback transitions (`EngineState`) are guarded by a `transition_in_progress` lock, guaranteeing **at most 1 transition** when natural stream EOF and `/skip` command occur simultaneously.
 - **Sub-Second InnerTube Player Resolution**: InnerTube `ANDROID` (`19.05.36`) and `TVHTML5` player endpoints resolve stream audio in **~100 milliseconds** (down from 6.5s).
 - **Persistence Layer (`DbRepository`)**: Production repository abstraction supporting **MongoDB Atlas**, **Neon PostgreSQL**, or SQLite.
-- **Heroku Ready**: Includes `Procfile`, `runtime.txt`, SIGTERM graceful shutdown handlers, and environment config parser.
+- **Heroku Ready**: `Procfile` (worker dyno), `app.json`, `RustConfig` toolchain pin, `Aptfile` native deps, runtime `yt-dlp` bootstrap (`bin/start_worker`), SIGTERM graceful shutdown handlers, and environment config parser.
 - **100% Test Coverage Verified**: 48 unit & integration tests passing cleanly in 0.03 seconds.
 
 ---
@@ -106,15 +106,32 @@ All detailed guides and technical specifications are organized in the `docs/` di
 
 ## ☁️ Deploy to Heroku
 
-Brock Music Bot includes native Heroku support:
+Both **buildpack** (recommended) and **container (Docker)** deploys are supported.
+The bot runs as a **worker dyno** (a long-running process that connects out to
+the Telegram API) — not a web dyno, so there is no public `*.herokuapp.com` URL.
 
 ```bash
+# ── Buildpack path (Cedar) ──────────────────────────────────────────────
 heroku create brook-music-bot
-heroku config:set BOT_TOKEN="your_token" OWNER_ID="12345"
-git push heroku main
+heroku buildpacks:set https://github.com/heroku-community/apt --index 1 -a brook-music-bot
+heroku buildpacks:set https://github.com/emk/heroku-buildpack-rust --index 2 -a brook-music-bot
+heroku config:set BOT_TOKEN="your_token" OWNER_ID="12345" -a brook-music-bot
+git push heroku master
+heroku ps:scale web=0 worker=1 -a brook-music-bot
+
+# ── Container path (Docker) ─────────────────────────────────────────────
+heroku stack:set container
+heroku container:push worker
+heroku container:release worker
+heroku ps:scale web=0 worker=1
 ```
 
-For full setup instructions, see the **[Heroku Deployment Guide](docs/DEPLOYMENT.md)**.
+Even **before** `BOT_TOKEN` is configured the worker stays up (it just waits for
+a shutdown signal instead of exiting), so you can push first and set config vars
+afterwards without the dyno restart-looping.
+
+For the full setup guide (buildpack ordering, config vars, CI/CD, database) see
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
 ---
 

@@ -1,9 +1,17 @@
 # syntax=docker/dockerfile:1
-# Heroku container deployment for Brook Music Bot
+# Heroku container deployment for Brook Music Bot (worker dyno type)
 # Builds a minimal runtime image with Rust binary + ffmpeg for audio processing
+#
+# Deploy with:
+#   heroku stack:set container
+#   heroku container:push worker
+#   heroku container:release worker
+#   heroku ps:scale web=0 worker=1
 
 # ---- Builder stage ----
-FROM rust:1.85-bookworm AS builder
+# NOTE: the toolchain must match the version pinned in `RustConfig`
+# (`VERSION=1.97.1`) — the code targets std APIs only available from there.
+FROM rust:1.97-bookworm AS builder
 
 # Install system dependencies for native crates (opus, openssl, etc.) and ffmpeg
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -52,13 +60,11 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/target/release/brook-music-bot /app/brook-music-bot
 
-
-
 # Non-root user for security
 RUN useradd -r -u 1001 -s /sbin/nologin appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Heroku sets PORT env; the binary binds to $PORT for the Axum health API
+# Worker dynos receive no $PORT from Heroku; the internal Axum HTTP API binds 8000.
 ENV RUST_LOG=info
 EXPOSE 8000
 

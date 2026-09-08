@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Heroku worker dyno entry point.
+#
+# This is a long-running Telegram bot (worker), NOT a web app: Heroku does not
+# route HTTP traffic to workers and does not inject $PORT. The bot connects OUT
+# to the Telegram Bot API / MTProto / provider APIs, so it must simply stay up.
+#
+# On boot it guarantees the yt-dlp binary (used for YouTube audio extraction)
+# is available at RUNTIME. The slug filesystem is read-only on Cedar, so we
+# install into the dyno's writable /tmp area on every boot.
+# If the install fails (no network or no pip), the bot still boots — it
+# degrades gracefully to the built-in InnerTube / Invidious / Piped resolvers.
+set -u
+
+if ! command -v yt-dlp >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then
+    echo "Installing yt-dlp into /tmp/ytdlp (runtime)..."
+    pip3 install --disable-pip-version-check --no-cache-dir \
+        --target /tmp/ytdlp yt-dlp || echo "WARNING: yt-dlp install failed; resolution will degrade gracefully."
+fi
+
+# Prepend so the Rust binary and its spawned `yt-dlp` subprocess find it.
+export PATH="/tmp/ytdlp/bin:$PATH"
+
+# exec replaces this shell so SIGTERM/graceful shutdown reaches the Rust process directly.
+exec target/release/brook-music-bot

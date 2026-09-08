@@ -1,6 +1,6 @@
 # Brock Music Bot — REST API Documentation
 
-The bot exposes lightweight HTTP REST endpoints via Axum on `PORT` (default: 8000) for health monitoring, stream proxying, web control, and system metrics.
+The bot exposes lightweight HTTP REST endpoints via Axum on port `8000` (or `$PORT` if set) for health monitoring, stream proxying, web control, and system metrics. On Heroku these endpoints are **not publicly routable** — the bot runs as a **worker dyno**; the API is for local inspection via `heroku run` and for embedded use.
 
 ## Endpoints
 

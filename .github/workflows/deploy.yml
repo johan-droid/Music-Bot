@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
 
 jobs:
   validate-and-build:
@@ -10,34 +10,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust toolchain
+      - name: Set up Rust toolchain (pinned via RustConfig for Heroku)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Native build dependencies (mirror of Heroku Aptfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config libssl-dev libopus-dev
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
       - name: Check compilation
-        run: cargo check --release
+        run: cargo check --release --locked
 
       - name: Run unit & integration tests
-        run: cargo test --release -- --nocapture
+        run: cargo test --release --locked -- --nocapture
 
   deploy:
     needs: validate-and-build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Heroku CLI
         run: curl https://cli-assets.heroku.com/install.sh | sh
 
+      - name: Configure buildpacks (apt first, then Rust)
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: |
+          heroku buildpacks:set https://github.com/heroku-community/apt --index 1 -a "$HEROKU_APP_NAME"
+          heroku buildpacks:set https://github.com/emk/heroku-buildpack-rust --index 2 -a "$HEROKU_APP_NAME"
+
       - name: Deploy to Heroku
-        uses: akhileshns/heroku-deploy@v3.15.15
-        with:
-          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
-          heroku_email: ${{ secrets.HEROKU_EMAIL }}
-          appdir: "."
-          usedocker: false
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+          HEROKU_EMAIL: ${{ secrets.HEROKU_EMAIL }}
+        run: |
+          # Authenticate git+https pushes with the API key
+          cat > "$HOME/.netrc" <<EOF
+          machine git.heroku.com
+            login ${HEROKU_EMAIL}
+            password ${HEROKU_API_KEY}
+          EOF
+          chmod 600 "$HOME/.netrc"
+          git remote remove heroku 2>/dev/null || true
+          git remote add heroku "https://git.heroku.com/${HEROKU_APP_NAME}.git"
+          git push heroku HEAD:refs/heads/master
 

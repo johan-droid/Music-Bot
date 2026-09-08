@@ -1,3 +1,15 @@
+# ── Native build dependencies (compile-time) ────────────────────────────────
+# Required to compile native crates (tgcalls C++ bindings, ferogram crypto,
+# rustls/ring). Without these the `cargo build --release` step on Heroku fails.
+clang
+cmake
+pkg-config
+libssl-dev
+libopus-dev
+
+# ── Runtime dependencies ────────────────────────────────────────────────────
+# ffmpeg: audio decoding for WebRTC voice-chat streaming + yt-dlp piping.
+# python3/python3-pip: used by bin/start_web to install the yt-dlp binary at dyno boot.
 ffmpeg
 python3
 python3-pip
