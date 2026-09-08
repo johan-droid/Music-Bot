@@ -3,6 +3,7 @@
   "description": "Soul King Telegram music bot in pure Rust with multi-platform streaming (YouTube, Spotify, Apple Music, SoundCloud, Direct Links) via IP-ban-safe public APIs.",
   "repository": "https://github.com/johan-droid/Brock-Music-Bot-ACN",
   "keywords": ["telegram", "music", "rust", "tokio", "teloxide", "axum"],
+  "stack": "heroku-24",
   "env": {
     "BOT_TOKEN": {
       "description": "Telegram bot token from @BotFather",
